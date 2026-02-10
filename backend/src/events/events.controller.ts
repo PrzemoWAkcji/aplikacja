@@ -44,4 +44,11 @@ export class EventsController {
     remove(@Param('id') id: string) {
         return this.eventsService.remove(id);
     }
+
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.ORGANIZER, Role.ADMIN)
+    @Post(':id/start-list')
+    generateStartList(@Param('id') id: string, @Body() body: { lanesPerHeat: number }) {
+        return this.eventsService.generateStartList(id, body.lanesPerHeat);
+    }
 }

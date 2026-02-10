@@ -36,6 +36,45 @@ export class EventsService {
         });
     }
 
+    async generateStartList(id: string, lanesPerHeat: number = 8) {
+        const entries = await this.prisma.entry.findMany({
+            where: { eventId: id, status: 'CONFIRMED' },
+        });
+
+        // Simple random seeding for MVP
+        // Shuffle entries
+        const shuffled = entries.sort(() => 0.5 - Math.random());
+        const totalEntries = shuffled.length;
+        const heatCount = Math.ceil(totalEntries / lanesPerHeat);
+
+        const updatePromises = [];
+
+        let currentHeat = 1;
+        let currentLane = 1;
+
+        for (const entry of shuffled) {
+            updatePromises.push(
+                this.prisma.entry.update({
+                    where: { id: entry.id },
+                    data: {
+                        heat: currentHeat,
+                        lane: currentLane,
+                    },
+                }),
+            );
+
+            currentLane++;
+            if (currentLane > lanesPerHeat) {
+                currentHeat++;
+                currentLane = 1;
+            }
+        }
+
+        await this.prisma.$transaction(updatePromises);
+
+        return { message: 'Start list generated', heats: heatCount, entries: totalEntries };
+    }
+
     remove(id: string) {
         return this.prisma.event.delete({
             where: { id },

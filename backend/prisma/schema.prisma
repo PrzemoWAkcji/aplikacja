@@ -47,6 +47,7 @@ model Event {
   name      String
   code      String
   gender    String // M, K, MIX
+  startTime DateTime?
   meeting   Meeting  @relation(fields: [meetingId], references: [id])
   meetingId String
   entries   Entry[]
@@ -64,6 +65,8 @@ model Entry {
   id          String      @id @default(uuid())
   athleteName String
   bib         String?
+  heat        Int?
+  lane        Int?
   event       Event       @relation(fields: [eventId], references: [id])
   eventId     String
   status      EntryStatus @default(PENDING)

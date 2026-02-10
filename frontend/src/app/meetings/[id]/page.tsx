@@ -23,6 +23,8 @@ interface Entry {
     athleteName: string;
     status: string;
     bib?: string;
+    heat?: number;
+    lane?: number;
 }
 
 interface Meeting {
@@ -94,6 +96,19 @@ export default function MeetingDetailsPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['entries', selectedEventId] });
+        }
+    });
+
+    const generateStartListMutation = useMutation({
+        mutationFn: async ({ eventId, lanesPerHeat = 8 }: { eventId: string, lanesPerHeat?: number }) => {
+            return api.post(`/events/${eventId}/start-list`, { lanesPerHeat });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['entries', selectedEventId] });
+            alert('Lista startowa została wygenerowana.');
+        },
+        onError: () => {
+            alert('Wystąpił błąd podczas generowania listy startowej.');
         }
     });
 
@@ -212,12 +227,21 @@ export default function MeetingDetailsPage() {
                     {/* Entries List */}
                     <div className="col-span-2 space-y-6">
                         <Card>
-                            <CardHeader>
+                            <CardHeader className="flex flex-row items-center justify-between">
                                 <CardTitle>
                                     {selectedEventId
                                         ? `Zgłoszenia: ${meeting.events.find(e => e.id === selectedEventId)?.name}`
                                         : 'Zgłoszenia'}
                                 </CardTitle>
+                                {selectedEventId && (
+                                    <Button
+                                        size="sm"
+                                        onClick={() => generateStartListMutation.mutate({ eventId: selectedEventId })}
+                                        disabled={generateStartListMutation.isPending}
+                                    >
+                                        Generuj Listę Startową
+                                    </Button>
+                                )}
                             </CardHeader>
                             <CardContent>
                                 {!selectedEventId ? (
@@ -234,6 +258,7 @@ export default function MeetingDetailsPage() {
                                                 <table className="min-w-full divide-y divide-gray-200">
                                                     <thead className="bg-gray-50">
                                                         <tr>
+                                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Seria / Tor</th>
                                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zawodnik</th>
                                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nr Bib</th>
                                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -243,6 +268,9 @@ export default function MeetingDetailsPage() {
                                                     <tbody className="bg-white divide-y divide-gray-200">
                                                         {entries?.map((entry) => (
                                                             <tr key={entry.id}>
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                    {entry.heat ? `S${entry.heat} / T${entry.lane}` : '-'}
+                                                                </td>
                                                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{entry.athleteName}</td>
                                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{entry.bib || '-'}</td>
                                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
