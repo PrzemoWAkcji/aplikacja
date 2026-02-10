@@ -5,4 +5,10 @@
 - [x] 4. Moduł B: Biuro Zawodów (Listy startowe, Program minutowy)
 - [x] 5. Moduł C: Integracja Plikowa (Eksport CSV/EVT, Import CSV)
 - [x] 6. Moduł D: INTEGRACJA Z FINISHLYNX (Parser LIF, Real-time WebSockets, Publiczny Portal Wyników) <!-- id: 6 -->
-- [ ] 7. Moduł E: Monitoring i Testy E2E
+- [x] 7. Moduł E: Monitoring i Testy E2E
+    - [x] Backend Health Check (Terminus) <!-- id: 60 -->
+    - [x] Backend E2E Tests (Jest/Supertest) <!-- id: 61 -->
+    - [x] Frontend E2E Setup (Playwright) <!-- id: 62 -->
+    - [x] Performance Monitoring (Logging Interceptor) <!-- id: 63 -->
+    - [x] CI/CD Ready Testing Setup <!-- id: 64 -->
+

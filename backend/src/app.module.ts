@@ -9,9 +9,20 @@ import { EventsModule } from './events/events.module';
 import { EntriesModule } from './entries/entries.module';
 import { FileMappingModule } from './file-mapping/file-mapping.module';
 import { ResultsModule } from './results/results.module';
+import { HealthModule } from './health.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule, AuthModule, MeetingsModule, EventsModule, EntriesModule, FileMappingModule, ResultsModule],
+  imports: [
+    PrismaModule,
+    UsersModule,
+    AuthModule,
+    MeetingsModule,
+    EventsModule,
+    EntriesModule,
+    FileMappingModule,
+    ResultsModule,
+    HealthModule
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
