@@ -38,6 +38,15 @@ export class ResultsGateway
     }
 
     broadcastUpdate(eventId: string, data: any) {
-        this.server.to(`event_${eventId}`).emit('resultsUpdated', data);
+        if (this.server) {
+            this.server.to(`event_${eventId}`).emit('resultsUpdated', data);
+        }
+    }
+
+    // Standard way to close server during tests
+    onModuleDestroy() {
+        if (this.server) {
+            this.server.close();
+        }
     }
 }

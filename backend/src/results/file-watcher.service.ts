@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import * as chokidar from 'chokidar';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,9 +7,10 @@ import { ResultsGateway } from './results.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
-export class FileWatcherService implements OnModuleInit {
+export class FileWatcherService implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(FileWatcherService.name);
     private readonly watchDir = path.join(process.cwd(), 'lynx_data');
+    private watcher: chokidar.FSWatcher | null = null;
 
     constructor(
         private resultsService: ResultsService,
@@ -25,14 +26,21 @@ export class FileWatcherService implements OnModuleInit {
         this.logger.log(`Starting file watcher on: ${this.watchDir}`);
 
         // Watch for .lif files
-        const watcher = chokidar.watch(this.watchDir, {
+        this.watcher = chokidar.watch(this.watchDir, {
             ignored: /(^|[\/\\])\../, // ignore dotfiles
             persistent: true,
             ignoreInitial: true,
         });
 
-        watcher.on('add', (filePath) => this.handleFile(filePath));
-        watcher.on('change', (filePath) => this.handleFile(filePath));
+        this.watcher.on('add', (filePath) => this.handleFile(filePath));
+        this.watcher.on('change', (filePath) => this.handleFile(filePath));
+    }
+
+    onModuleDestroy() {
+        if (this.watcher) {
+            this.watcher.close();
+            this.logger.log('File watcher closed');
+        }
     }
 
     private async handleFile(filePath: string) {

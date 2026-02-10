@@ -11,4 +11,8 @@
     - [x] Frontend E2E Setup (Playwright) <!-- id: 62 -->
     - [x] Performance Monitoring (Logging Interceptor) <!-- id: 63 -->
     - [x] CI/CD Ready Testing Setup <!-- id: 64 -->
-
+- [x] 8. Moduł F: WDROŻENIE (Docker, Orkiestracja, Instrukcja) <!-- id: 8 -->
+    - [x] Dockerfile dla Backendu <!-- id: 80 -->
+    - [x] Dockerfile dla Frontendu <!-- id: 81 -->
+    - [x] Konfiguracja Docker Compose Prod <!-- id: 82 -->
+    - [x] Finalna dokumentacja wdrożeniowa <!-- id: 83 -->
