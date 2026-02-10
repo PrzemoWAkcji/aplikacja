@@ -1,0 +1,2 @@
+# Ignore prisma.config.ts in Docker build
+prisma.config.ts

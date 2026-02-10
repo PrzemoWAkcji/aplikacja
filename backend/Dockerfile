@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Set DATABASE_URL for build time (required by Prisma 6.x generate)
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+
 COPY package*.json ./
 RUN npm install
 
@@ -22,4 +25,5 @@ COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+# Real DATABASE_URL will come from docker-compose
+CMD ["node", "dist/src/main.js"]
