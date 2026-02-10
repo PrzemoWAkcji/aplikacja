@@ -4,7 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Trophy, Upload, RefreshCcw } from 'lucide-react';
+import { Trophy, Upload, RefreshCcw, Wifi } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { io, Socket } from 'socket.io-client';
 
 interface Result {
     id: string;
@@ -28,6 +30,32 @@ interface ResultsViewProps {
 
 export default function ResultsView({ meetingId, eventId, eventName }: ResultsViewProps) {
     const queryClient = useQueryClient();
+    const [socket, setSocket] = useState<Socket | null>(null);
+    const [isLive, setIsLive] = useState(false);
+
+    // Socket.io Connection
+    useEffect(() => {
+        const newSocket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000');
+        setSocket(newSocket);
+
+        newSocket.on('connect', () => {
+            setIsLive(true);
+            if (eventId) {
+                newSocket.emit('joinEvent', eventId);
+            }
+        });
+
+        newSocket.on('resultsUpdated', (data) => {
+            console.log('Results updated via WebSocket:', data);
+            queryClient.invalidateQueries({ queryKey: ['results', eventId] });
+        });
+
+        newSocket.on('disconnect', () => setIsLive(false));
+
+        return () => {
+            newSocket.disconnect();
+        };
+    }, [eventId, queryClient]);
 
     const { data: results, isLoading } = useQuery<Result[]>({
         queryKey: ['results', eventId],
@@ -75,6 +103,12 @@ export default function ResultsView({ meetingId, eventId, eventName }: ResultsVi
                 <CardTitle className="flex items-center gap-2">
                     <Trophy className="h-5 w-5 text-yellow-500" />
                     Wyniki: {eventName}
+                    {isLive && (
+                        <span className="flex items-center gap-1 text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full animate-pulse uppercase font-bold ml-2">
+                            <Wifi className="h-3 w-3" />
+                            Live
+                        </span>
+                    )}
                 </CardTitle>
                 <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ['results', eventId] })}>
@@ -115,7 +149,7 @@ export default function ResultsView({ meetingId, eventId, eventName }: ResultsVi
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
-                                {results?.map((result) => (
+                                {results?.sort((a, b) => (a.place || 999) - (b.place || 999)).map((result) => (
                                     <tr key={result.id} className={result.place === 1 ? 'bg-yellow-50/30' : ''}>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{result.place || '-'}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{result.entry.bib}</td>
