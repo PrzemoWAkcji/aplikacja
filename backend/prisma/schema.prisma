@@ -19,12 +19,54 @@ enum Role {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
+  id        String    @id @default(uuid())
+  email     String    @unique
   password  String
   firstName String
   lastName  String
-  role      Role     @default(USER)
+  role      Role      @default(USER)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  meetings  Meeting[]
+}
+
+model Meeting {
+  id          String   @id @default(uuid())
+  name        String
+  date        DateTime
+  location    String
+  organizer   User     @relation(fields: [organizerId], references: [id])
+  organizerId String
+  events      Event[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Event {
+  id        String   @id @default(uuid())
+  name      String
+  code      String
+  gender    String // M, K, MIX
+  meeting   Meeting  @relation(fields: [meetingId], references: [id])
+  meetingId String
+  entries   Entry[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum EntryStatus {
+  PENDING
+  CONFIRMED
+  SCRATCHED
+}
+
+model Entry {
+  id          String      @id @default(uuid())
+  athleteName String
+  bib         String?
+  event       Event       @relation(fields: [eventId], references: [id])
+  eventId     String
+  status      EntryStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 }
