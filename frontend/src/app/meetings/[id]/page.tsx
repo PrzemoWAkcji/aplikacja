@@ -73,9 +73,16 @@ export default function MeetingDetailsPage() {
                         <Link href={`/meetings/${meeting.id}/register`} target="_blank">
                             <Button variant="outline">
                                 <ExternalLink className="h-4 w-4 mr-2" />
-                                Link do rejestracji
+                                Rejestracja
                             </Button>
                         </Link>
+                        <Link href={`/results/${meeting.id}`} target="_blank">
+                            <Button variant="outline">
+                                <Trophy className="h-4 w-4 mr-2" />
+                                Wyniki Live (Widok publiczny)
+                            </Button>
+                        </Link>
+
                         <Button variant="default" onClick={() => router.push('/dashboard')}>
                             Wróć do Dashboardu
                         </Button>

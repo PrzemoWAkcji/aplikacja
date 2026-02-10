@@ -1,65 +1,141 @@
-import Image from "next/image";
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import api from '../lib/api';
+import Link from 'next/link';
+import { Button } from '../components/ui/button';
+import { Trophy, Calendar, MapPin, ChevronRight, LayoutDashboard, LogIn } from 'lucide-react';
+
+interface Meeting {
+  id: string;
+  name: string;
+  date: string;
+  location: string;
+}
 
 export default function Home() {
+  const { data: meetings, isLoading } = useQuery<Meeting[]>({
+    queryKey: ['public-meetings'],
+    queryFn: async () => {
+      const response = await api.get('/meetings');
+      return response.data;
+    },
+  });
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="min-h-screen bg-[#f8fafc] font-sans">
+      {/* Top Navigation */}
+      <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <Trophy className="h-5 w-5 text-white" />
+            </div>
+            <span className="font-black text-xl tracking-tighter text-slate-800">ATHLETICS<span className="text-blue-600">PRO</span></span>
+          </div>
+          <div className="flex gap-4">
+            <Link href="/login">
+              <Button variant="ghost" size="sm" className="font-bold text-slate-600">
+                <LogIn className="h-4 w-4 mr-2" />
+                Panel Sędziowski
+              </Button>
+            </Link>
+            <Link href="/dashboard">
+              <Button size="sm" className="bg-blue-600 hover:bg-blue-700 font-bold shadow-lg shadow-blue-200 transition-all active:scale-95">
+                <LayoutDashboard className="h-4 w-4 mr-2" />
+                Dashboard
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <header className="relative py-24 px-6 overflow-hidden">
+        <div className="max-w-7xl mx-auto text-center space-y-8 relative z-10">
+          <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest border border-blue-100">
+            <span className="h-2 w-2 bg-blue-600 rounded-full animate-ping"></span>
+            Status: System Online
+          </div>
+          <h1 className="text-5xl md:text-7xl font-black text-slate-900 tracking-tight leading-none">
+            WYNIKI ZAWODÓW <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">NA ŻYWO</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="max-w-2xl mx-auto text-slate-500 text-lg md:text-xl font-medium leading-relaxed">
+            Oficjalne wyniki, listy startowe i program minutowy zawodów lekkoatletycznych.
+            Bezpośrednie połączenie z fotofiniszem FinishLynx.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        {/* Background Blobs */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-lg h-64 bg-blue-400 opacity-20 blur-[120px] -z-10"></div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-6xl mx-auto px-6 pb-32">
+        <div className="flex items-center justify-between mb-12">
+          <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-3">
+            <Calendar className="h-6 w-6 text-blue-600" />
+            Nadchodzące Wydarzenia
+          </h2>
         </div>
+
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-64 bg-slate-200 animate-pulse rounded-3xl"></div>
+            ))}
+          </div>
+        ) : meetings?.length === 0 ? (
+          <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200">
+            <Calendar className="h-16 w-16 mx-auto mb-4 text-slate-300" />
+            <p className="text-slate-500 font-bold">Obecnie nie ma zaplanowanych zawodów.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {meetings?.map((meeting) => (
+              <div key={meeting.id} className="group relative bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200/50 border border-slate-100 transition-all hover:-translate-y-2 hover:shadow-2xl hover:shadow-blue-200/40">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-blue-600 text-[10px] font-black uppercase tracking-widest">
+                      <Calendar className="h-3 w-3" />
+                      {new Date(meeting.date).toLocaleDateString('pl-PL', { day: 'numeric', month: 'long' })}
+                    </div>
+                    <h3 className="text-2xl font-bold text-slate-800 leading-tight group-hover:text-blue-600 transition-colors">
+                      {meeting.name}
+                    </h3>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-slate-400 text-sm font-medium">
+                    <MapPin className="h-4 w-4" />
+                    {meeting.location}
+                  </div>
+
+                  <div className="pt-4 flex flex-col gap-3">
+                    <Link href={`/results/${meeting.id}`} className="w-full">
+                      <Button className="w-full bg-slate-900 hover:bg-black rounded-xl h-12 font-bold flex items-center justify-between px-6 transition-all group-hover:scale-[1.02]">
+                        Wyniki Live
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                    <Link href={`/meetings/${meeting.id}/register`} className="w-full">
+                      <Button variant="ghost" className="w-full h-12 font-bold text-slate-500 hover:text-blue-600 hover:bg-blue-50">
+                        Zapisz się do zawodów
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-100 bg-white py-12 text-center">
+        <p className="text-slate-400 text-sm font-medium">
+          &copy; 2026 AthleticsPRO System. Powered by NestJS & Next.js.
+        </p>
+      </footer>
     </div>
   );
 }
