@@ -70,6 +70,21 @@ model Entry {
   event       Event       @relation(fields: [eventId], references: [id])
   eventId     String
   status      EntryStatus @default(PENDING)
+  result      Result?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 }
+
+model Result {
+  id           String   @id @default(uuid())
+  place        Int?
+  time         String?
+  wind         Float?
+  reactionTime Float?
+  status       String   @default("OK") // OK, DNS, DNF, DQ, NM
+  entry        Entry    @relation(fields: [entryId], references: [id])
+  entryId      String   @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+

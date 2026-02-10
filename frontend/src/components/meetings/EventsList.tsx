@@ -56,9 +56,35 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
         <Card>
             <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Konkurencje</CardTitle>
-                <Button size="icon" onClick={() => setIsFormOpen(!isFormOpen)}>
-                    <Plus className="h-4 w-4" />
-                </Button>
+                <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => document.getElementById('federation-import')?.click()}>
+                        Import CSV
+                    </Button>
+                    <input
+                        id="federation-import"
+                        type="file"
+                        accept=".csv"
+                        className="hidden"
+                        onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+
+                            const formData = new FormData();
+                            formData.append('file', file);
+
+                            try {
+                                await api.post(`/file-mapping/import/federation/${meetingId}`, formData);
+                                queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+                                alert('Zgłoszenia zostały zaimportowane.');
+                            } catch (error) {
+                                alert('Błąd podczas importu zgłoszeń.');
+                            }
+                        }}
+                    />
+                    <Button size="icon" onClick={() => setIsFormOpen(!isFormOpen)}>
+                        <Plus className="h-4 w-4" />
+                    </Button>
+                </div>
             </CardHeader>
             <CardContent>
                 {isFormOpen && (

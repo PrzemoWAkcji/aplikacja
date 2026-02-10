@@ -7,10 +7,12 @@ import { AuthModule } from './auth/auth.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { EventsModule } from './events/events.module';
 import { EntriesModule } from './entries/entries.module';
+import { FileMappingModule } from './file-mapping/file-mapping.module';
+import { ResultsModule } from './results/results.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule, AuthModule, MeetingsModule, EventsModule, EntriesModule],
+  imports: [PrismaModule, UsersModule, AuthModule, MeetingsModule, EventsModule, EntriesModule, FileMappingModule, ResultsModule],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

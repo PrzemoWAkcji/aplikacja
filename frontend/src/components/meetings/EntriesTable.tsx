@@ -74,13 +74,45 @@ export default function EntriesTable({ selectedEventId, eventName }: EntriesTabl
                     {selectedEventId ? `Zgłoszenia: ${eventName}` : 'Zgłoszenia'}
                 </CardTitle>
                 {selectedEventId && (
-                    <Button
-                        size="sm"
-                        onClick={() => generateStartListMutation.mutate({ eventId: selectedEventId })}
-                        disabled={generateStartListMutation.isPending}
-                    >
-                        Generuj Listę Startową
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                                const response = await api.get(`/file-mapping/export/csv/${selectedEventId}`, { responseType: 'blob' });
+                                const url = window.URL.createObjectURL(new Blob([response.data]));
+                                const link = document.createElement('a');
+                                link.href = url;
+                                link.setAttribute('download', `start_list_${selectedEventId}.csv`);
+                                document.body.appendChild(link);
+                                link.click();
+                            }}
+                        >
+                            Eksport CSV
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                                const response = await api.get(`/file-mapping/export/evt/${selectedEventId}`, { responseType: 'blob' });
+                                const url = window.URL.createObjectURL(new Blob([response.data]));
+                                const link = document.createElement('a');
+                                link.href = url;
+                                link.setAttribute('download', `${selectedEventId}.evt`);
+                                document.body.appendChild(link);
+                                link.click();
+                            }}
+                        >
+                            Eksport EVT
+                        </Button>
+                        <Button
+                            size="sm"
+                            onClick={() => generateStartListMutation.mutate({ eventId: selectedEventId })}
+                            disabled={generateStartListMutation.isPending}
+                        >
+                            Generuj Listę Startową
+                        </Button>
+                    </div>
                 )}
             </CardHeader>
             <CardContent>

@@ -6,11 +6,12 @@ import { Button } from '../../../components/ui/button';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '../../../store/auth-store';
 import { useState } from 'react';
-import { ExternalLink, List, Calendar } from 'lucide-react';
+import { ExternalLink, List, Calendar, Trophy } from 'lucide-react';
 import Link from 'next/link';
 import EventsList from '../../../components/meetings/EventsList';
 import EntriesTable from '../../../components/meetings/EntriesTable';
 import ScheduleView from '../../../components/meetings/ScheduleView';
+import ResultsView from '../../../components/meetings/ResultsView';
 
 interface Event {
     id: string;
@@ -28,7 +29,8 @@ interface Meeting {
     events: Event[];
 }
 
-type Tab = 'entries' | 'schedule';
+type Tab = 'entries' | 'schedule' | 'results';
+
 
 export default function MeetingDetailsPage() {
     const params = useParams();
@@ -96,10 +98,17 @@ export default function MeetingDetailsPage() {
                         <Calendar className="h-4 w-4" />
                         Program
                     </button>
+                    <button
+                        className={`flex items-center gap-2 px-4 py-2 rounded-t-md text-sm font-medium transition-colors ${activeTab === 'results' ? 'bg-white border border-b-0 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                        onClick={() => setActiveTab('results')}
+                    >
+                        <Trophy className="h-4 w-4" />
+                        Wyniki
+                    </button>
                 </div>
 
                 {/* Tab Content */}
-                {activeTab === 'entries' && (
+                {(activeTab === 'entries' || activeTab === 'results') && (
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         <div className="col-span-1">
                             <EventsList
@@ -110,13 +119,22 @@ export default function MeetingDetailsPage() {
                             />
                         </div>
                         <div className="col-span-2">
-                            <EntriesTable
-                                selectedEventId={selectedEventId}
-                                eventName={selectedEventName}
-                            />
+                            {activeTab === 'entries' ? (
+                                <EntriesTable
+                                    selectedEventId={selectedEventId}
+                                    eventName={selectedEventName}
+                                />
+                            ) : (
+                                <ResultsView
+                                    meetingId={meeting.id}
+                                    eventId={selectedEventId}
+                                    eventName={selectedEventName}
+                                />
+                            )}
                         </div>
                     </div>
                 )}
+
 
                 {activeTab === 'schedule' && (
                     <ScheduleView meetingId={meeting.id} events={meeting.events} />
