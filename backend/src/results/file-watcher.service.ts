@@ -1,9 +1,9 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import * as chokidar from 'chokidar';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ResultsService } from './results.service';
-import { ResultsGateway } from './results.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -13,8 +13,7 @@ export class FileWatcherService implements OnModuleInit, OnModuleDestroy {
     private watcher: chokidar.FSWatcher | null = null;
 
     constructor(
-        private resultsService: ResultsService,
-        private resultsGateway: ResultsGateway,
+        @InjectQueue('results-queue') private resultsQueue: Queue,
         private prisma: PrismaService,
     ) {
         if (!fs.existsSync(this.watchDir)) {
@@ -64,18 +63,17 @@ export class FileWatcherService implements OnModuleInit, OnModuleDestroy {
             }
 
             const fileBuffer = fs.readFileSync(filePath);
-            const result = await this.resultsService.importLif(event.id, fileBuffer);
 
-            this.logger.log(`Automatically imported ${result.imported} results for event ${event.name}`);
-
-            // Broadcast update via WebSocket
-            this.resultsGateway.broadcastUpdate(event.id, {
-                imported: result.imported,
-                heat: result.heat,
-                timestamp: new Date().toISOString(),
+            // Offload processing to BullMQ
+            await this.resultsQueue.add('import-lif', {
+                eventId: event.id,
+                fileBuffer: fileBuffer,
             });
+
+            this.logger.log(`Queued LIF import for event ${event.name} (File: ${fileName})`);
+
         } catch (error) {
-            this.logger.error(`Error processing automated LIF import: ${error.message}`);
+            this.logger.error(`Error queuing automated LIF import: ${error.message}`);
         }
     }
 }

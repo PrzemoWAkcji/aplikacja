@@ -16,3 +16,11 @@
     - [x] Dockerfile dla Frontendu <!-- id: 81 -->
     - [x] Konfiguracja Docker Compose Prod <!-- id: 82 -->
     - [x] Finalna dokumentacja wdrożeniowa <!-- id: 83 -->
+- [x] 9. Moduł G: INTEGRACJA ROSTER ATHLETICS <!-- id: 9 -->
+    - [x] Backend API (Import/Export CSV Roster) <!-- id: 90 -->
+    - [x] Rozszerzona baza danych (eventCode, heights, ageGroup, stage) <!-- id: 91 -->
+    - [x] Frontend UI dla importu/eksportu Roster CSV <!-- id: 92 -->
+    - [x] Automatyczne generowanie EventCode przy tworzeniu konkurencji <!-- id: 93 -->
+    - [x] Konfigurowalne wysokości dla skoków pionowych <!-- id: 94 -->
+    - [x] Aktualizacja importera federacyjnego o pola Roster <!-- id: 95 -->
+

@@ -130,6 +130,7 @@ export default function MeetingDetailsPage() {
                                 <EntriesTable
                                     selectedEventId={selectedEventId}
                                     eventName={selectedEventName}
+                                    meeting={meeting}
                                 />
                             ) : (
                                 <ResultsView

@@ -5,4 +5,9 @@ export class CreateEntryDto {
     bib?: string;
     eventId: string;
     status?: EntryStatus;
+    heat?: number;
+    lane?: number;
+    club?: string;
+    pb?: string;
+    sb?: string;
 }

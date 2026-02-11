@@ -44,16 +44,20 @@ model Meeting {
 }
 
 model Event {
-  id        String   @id @default(uuid())
-  name      String
-  code      String
-  gender    String // M, K, MIX
-  startTime DateTime?
-  meeting   Meeting  @relation(fields: [meetingId], references: [id])
-  meetingId String
-  entries   Entry[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(uuid())
+  name           String
+  code           String
+  eventCode      String? // Roster Athletics event code (e.g., "60", "100", "HJ")
+  gender         String // M, K, MIX
+  ageGroup       String? // U16, U18, U20, Senior
+  stage          String   @default("Final") // Heat, Semi-Final, Final, etc.
+  startTime      DateTime?
+  heights        String? // JSON array of heights for vertical jumps, e.g., "[1.40, 1.45, 1.50]"
+  meeting        Meeting  @relation(fields: [meetingId], references: [id])
+  meetingId      String
+  entries        Entry[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 enum EntryStatus {
@@ -63,29 +67,76 @@ enum EntryStatus {
 }
 
 model Entry {
-  id          String      @id @default(uuid())
-  athleteName String
-  bib         String?
-  heat        Int?
-  lane        Int?
-  event       Event       @relation(fields: [eventId], references: [id])
-  eventId     String
-  status      EntryStatus @default(PENDING)
-  result      Result?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id             String      @id @default(uuid())
+  // Name fields - backwards compatible
+  athleteName    String
+  firstName      String?
+  middleName     String?
+  lastName       String?
+  
+  // Identity
+  bib            String?
+  club           String?
+  countryCode    String?     @default("POL")
+  dateOfBirth    DateTime?
+  yearOfBirth    Int?
+  gender         String?     // M, K - can be different from event gender for mixed events
+  
+  // External IDs
+  tilastopajaId  String?     // Tilastopaja ID (Finnish statistics)
+  entryId        String?     // Roster Athletics Entry ID
+  startListId    String?     // Roster Athletics StartList ID
+  
+  // Performance data
+  pb             String?     // Personal Best
+  sb             String?     // Season Best
+  seedingResult  String?     // Seeding result for placement
+  
+  // Race assignment
+  heat           Int?
+  lane           Int?
+  
+  // Relations
+  event          Event       @relation(fields: [eventId], references: [id])
+  eventId        String
+  status         EntryStatus @default(PENDING)
+  result         Result?
+  
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 }
 
 model Result {
-  id           String   @id @default(uuid())
-  place        Int?
-  time         String?
-  wind         Float?
-  reactionTime Float?
-  status       String   @default("OK") // OK, DNS, DNF, DQ, NM
-  entry        Entry    @relation(fields: [entryId], references: [id])
-  entryId      String   @unique
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String   @id @default(uuid())
+  
+  // Placement
+  place          Int?
+  placeGender    Int?     // Place within gender category
+  
+  // Track event results
+  time           String?  // Final time/result
+  resultRounded  String?  // Rounded result for display
+  wind           Float?   // Wind reading (m/s)
+  windReading    String?  // Wind as string (for display)
+  reactionTime   Float?
+  
+  // Field event trials (for throws/jumps)
+  round1Result   String?  // "X", "O", "-", or distance/height
+  round2Result   String?
+  round3Result   String?
+  round4Result   String?
+  round5Result   String?
+  round6Result   String?
+  bestResult     String?  // Best result from all rounds
+  
+  // Status
+  status         String   @default("OK") // OK, DNS, DNF, DQ, NM
+  
+  // Relations
+  entry          Entry    @relation(fields: [entryId], references: [id])
+  entryId        String   @unique
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 

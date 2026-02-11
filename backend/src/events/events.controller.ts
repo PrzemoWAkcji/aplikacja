@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } f
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { GenerateStartListDto } from './dto/generate-start-list.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -47,8 +48,15 @@ export class EventsController {
 
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles(Role.ORGANIZER, Role.ADMIN)
+    @Delete(':id/start-list')
+    clearStartList(@Param('id') id: string) {
+        return this.eventsService.clearSeeding(id);
+    }
+
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.ORGANIZER, Role.ADMIN)
     @Post(':id/start-list')
-    generateStartList(@Param('id') id: string, @Body() body: { lanesPerHeat: number }) {
-        return this.eventsService.generateStartList(id, body.lanesPerHeat);
+    generateStartList(@Param('id') id: string, @Body() body: GenerateStartListDto) {
+        return this.eventsService.generateStartList(id, body);
     }
 }

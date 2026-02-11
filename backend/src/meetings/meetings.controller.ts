@@ -41,4 +41,16 @@ export class MeetingsController {
     remove(@Param('id') id: string) {
         return this.meetingsService.remove(id);
     }
+
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.ORGANIZER, Role.ADMIN)
+    @Delete(':id/events')
+    removeAllEvents(@Param('id') id: string) {
+        return this.meetingsService.deleteAllEvents(id);
+    }
+
+    @Get(':id/print-data')
+    getPrintData(@Param('id') id: string) {
+        return this.meetingsService.getPrintData(id);
+    }
 }

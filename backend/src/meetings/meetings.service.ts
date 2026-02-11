@@ -46,9 +46,68 @@ export class MeetingsService {
         });
     }
 
-    remove(id: string) {
+    async remove(id: string) {
         return this.prisma.meeting.delete({
             where: { id },
+        });
+    }
+
+    async deleteAllEvents(meetingId: string) {
+        const events = await this.prisma.event.findMany({
+            where: { meetingId },
+            select: { id: true },
+        });
+        const eventIds = events.map((e) => e.id);
+
+        if (eventIds.length > 0) {
+            // Find entries associated with these events to clean up results
+            const entries = await this.prisma.entry.findMany({
+                where: { eventId: { in: eventIds } },
+                select: { id: true },
+            });
+            const entryIds = entries.map((e) => e.id);
+
+            if (entryIds.length > 0) {
+                // Delete results associated with entries first
+                await this.prisma.result.deleteMany({
+                    where: { entryId: { in: entryIds } },
+                });
+
+                // Then delete entries
+                await this.prisma.entry.deleteMany({
+                    where: { id: { in: entryIds } },
+                });
+            }
+
+            // Finally delete events
+            await this.prisma.event.deleteMany({
+                where: { meetingId },
+            });
+        }
+        return { count: eventIds.length };
+    }
+
+    async getPrintData(id: string) {
+        return this.prisma.meeting.findUnique({
+            where: { id },
+            include: {
+                events: {
+                    include: {
+                        entries: {
+                            where: { status: 'CONFIRMED' },
+                            orderBy: [
+                                { heat: 'asc' },
+                                { lane: 'asc' },
+                            ],
+                        },
+                    },
+                    orderBy: {
+                        // Assuming we want some logical order, e.g., by name or creation?
+                        // Schema doesn't have 'order' field yet, utilizing code or name.
+                        code: 'asc',
+                    },
+                },
+            },
         });
     }
 }

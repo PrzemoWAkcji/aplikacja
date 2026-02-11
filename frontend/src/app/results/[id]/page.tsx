@@ -59,14 +59,14 @@ export default function PublicMeetingResultsPage() {
     return (
         <div className="min-h-screen bg-[#f8fafc] pb-20">
             {/* Hero Header */}
-            <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white pt-12 pb-24 px-8 shadow-2xl relative overflow-hidden">
+            <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white pt-6 pb-16 px-6 shadow-xl relative overflow-hidden">
                 <div className="max-w-7xl mx-auto relative z-10">
                     <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                         <div className="space-y-3">
                             <span className="bg-blue-400/30 text-blue-100 text-[10px] uppercase font-black tracking-widest px-3 py-1 rounded-full backdrop-blur-md border border-white/10">
                                 Live Competition Results
                             </span>
-                            <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none uppercase">
+                            <h1 className="text-2xl md:text-4xl font-black tracking-tight leading-none uppercase">
                                 {meeting.name}
                             </h1>
                             <div className="flex flex-wrap gap-6 text-blue-100/80 text-sm font-medium">
@@ -87,7 +87,7 @@ export default function PublicMeetingResultsPage() {
                 <div className="absolute bottom-0 left-0 -mb-20 -ml-20 h-64 w-64 bg-blue-400/10 rounded-full blur-3xl"></div>
             </div>
 
-            <div className="max-w-7xl mx-auto px-8 -mt-12 group">
+            <div className="max-w-7xl mx-auto px-6 -mt-8 group">
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                     {/* Event List Sidebar */}
                     <div className="lg:col-span-1 space-y-4">
@@ -104,8 +104,8 @@ export default function PublicMeetingResultsPage() {
                                         key={event.id}
                                         onClick={() => setSelectedEventId(event.id)}
                                         className={`w-full p-4 text-left transition-all relative overflow-hidden group ${selectedEventId === event.id
-                                                ? 'bg-blue-50/50'
-                                                : 'hover:bg-slate-50'
+                                            ? 'bg-blue-50/50'
+                                            : 'hover:bg-slate-50'
                                             }`}
                                     >
                                         {selectedEventId === event.id && (
