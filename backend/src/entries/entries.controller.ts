@@ -24,6 +24,16 @@ export class EntriesController {
     return this.entriesService.findAll();
   }
 
+  @Get('athletes/search')
+  searchAthletes(@Query('q') query: string) {
+    return this.entriesService.searchAthletes(query);
+  }
+
+  @Get('athletes/by-club')
+  findAthletesByClub(@Query('club') club: string) {
+    return this.entriesService.findAthletesByClub(club);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.entriesService.findOne(id);

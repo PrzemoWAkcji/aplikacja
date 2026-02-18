@@ -1,2 +1,17 @@
 node_modules
 Docker Desktop Installer.exe
+*
+*.zip
+*.rar
+*.7z
+Office 11/
+09.07 - AWF'/
+*.pdf
+!LEKKOATLETYKA-przepisy-zawodow-i-przepisy-t-echniczne-wyd.-2022-wersja-2023.04-1.pdf
+!roster protoko³y.pdf
+*.xls
+*_output.txt
+*_output.html
+check_*.js
+test_*.js
+fetch_*.js

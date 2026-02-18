@@ -7,11 +7,13 @@ export class RosterEntryDto {
     // Event details
     eventStart?: string;
     eventCode?: string;
+    eventName?: string;
     pzlaEventCode?: string;
     pzlaEventCodeNum?: number;
     ukaEventCode?: string;
     eventStage?: string;
     ageGroup?: string;
+    heat?: number;
     multipleAgeGroups?: string;
     oldestAgeGroup?: string;
     combinedEventRelation?: string;

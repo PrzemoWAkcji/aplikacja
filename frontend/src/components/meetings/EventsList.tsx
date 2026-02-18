@@ -2,12 +2,11 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useState } from 'react';
-import { Plus, Trash2, FileText, ClipboardList } from 'lucide-react';
-import { printBatch } from '../../lib/printUtils';
+import { Plus, Trash2, Trophy, Users, Clock, Hash } from 'lucide-react';
 
 interface Event {
     id: string;
@@ -26,6 +25,7 @@ interface EventsListProps {
 export default function EventsList({ meetingId, events, selectedEventId, onSelectEvent }: EventsListProps) {
     const queryClient = useQueryClient();
     const [isFormOpen, setIsFormOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const [newEvent, setNewEvent] = useState({
         name: '',
         code: '',
@@ -35,6 +35,11 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
         stage: 'Final',
         heights: ''
     });
+
+    const filteredEvents = events.filter(e =>
+        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        e.code.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
     const createMutation = useMutation({
         mutationFn: async (eventData: any) => {
@@ -56,320 +61,174 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
         },
     });
 
-    const deleteAllMutation = useMutation({
-        mutationFn: async () => {
-            return api.delete(`/meetings/${meetingId}/events`);
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
-            alert('Wszystkie konkurencje zostały usunięte.');
-        },
-        onError: () => {
-            alert('Wystąpił błąd podczas usuwania. Sprawdź, czy masz uprawnienia.');
-        }
-    });
-
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         createMutation.mutate(newEvent);
     };
 
+    const getAutoEventCode = (name: string) => {
+        const nameLower = name.toLowerCase();
+        if (nameLower.includes('60') && nameLower.includes('przez')) return '60H';
+        if (nameLower.includes('100') && nameLower.includes('przez')) return '100H';
+        if (nameLower.includes('110') && nameLower.includes('przez')) return '110H';
+        if (nameLower.includes('400') && nameLower.includes('przez')) return '400H';
+        if (nameLower.includes('60')) return '60';
+        if (nameLower.includes('100')) return '100';
+        if (nameLower.includes('200')) return '200';
+        if (nameLower.includes('400')) return '400';
+        if (nameLower.includes('800')) return '800';
+        if (nameLower.includes('1500')) return '1500';
+        if (nameLower.includes('3000')) return '3000';
+        if (nameLower.includes('5000')) return '5000';
+        if (nameLower.includes('10000') || nameLower.includes('10 000')) return '10000';
+        if (nameLower.includes('wzwyż')) return 'HJ';
+        if (nameLower.includes('tyczce') || nameLower.includes('tyczka')) return 'PV';
+        if (nameLower.includes('dal')) return 'LJ';
+        if (nameLower.includes('trójskok')) return 'TJ';
+        if (nameLower.includes('kula')) return 'SP';
+        if (nameLower.includes('dysk')) return 'DT';
+        if (nameLower.includes('oszczep')) return 'JT';
+        if (nameLower.includes('młot')) return 'HT';
+        if (nameLower.includes('4') && nameLower.includes('100')) return '4x100';
+        if (nameLower.includes('4') && nameLower.includes('400')) return '4x400';
+        return '';
+    };
+
+    const handleNameChange = (name: string) => {
+        const autoEventCode = getAutoEventCode(name);
+        const suffix = newEvent.gender === 'MIX' ? 'X' : newEvent.gender;
+        const code = autoEventCode ? `${autoEventCode}${suffix}` : newEvent.code;
+
+        setNewEvent({ ...newEvent, name, eventCode: autoEventCode, code });
+    };
+
+    const handleGenderChange = (gender: string) => {
+        const suffix = gender === 'MIX' ? 'X' : gender;
+        const code = newEvent.eventCode ? `${newEvent.eventCode}${suffix}` : newEvent.code;
+        setNewEvent({ ...newEvent, gender, code });
+    };
+
     return (
-        <Card>
-            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle>Konkurencje</CardTitle>
-                <div className="flex flex-wrap gap-2">
+        <Card className="shadow-none border-0 bg-transparent h-[calc(100vh-140px)] flex flex-col">
+            <CardHeader className="px-0 pt-0 pb-4 space-y-3">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-extrabold text-slate-900 tracking-tight">Konkurencje</h3>
                     <Button
-                        variant="outline"
                         size="sm"
-                        onClick={() => printBatch(meetingId, 'START_LIST')}
+                        variant="ghost"
+                        className="h-8 w-8 p-0 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-full"
+                        onClick={() => setIsFormOpen(!isFormOpen)}
                     >
-                        <FileText className="h-4 w-4 mr-2" />
-                        Wszystkie Listy
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => printBatch(meetingId, 'PROTOCOL')}
-                    >
-                        <ClipboardList className="h-4 w-4 mr-2" />
-                        Wszystkie Protokoły
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => document.getElementById('federation-import')?.click()}>
-                        Import CSV (Federacja)
-                    </Button>
-                    <input
-                        id="federation-import"
-                        type="file"
-                        accept=".csv"
-                        className="hidden"
-                        onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-
-                            const formData = new FormData();
-                            formData.append('file', file);
-
-                            try {
-                                await api.post(`/file-mapping/import/federation/${meetingId}`, formData);
-                                queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
-                                alert('Zgłoszenia zostały zaimportowane.');
-                            } catch (error) {
-                                alert('Błąd podczas importu zgłoszeń.');
-                            }
-                        }}
-                    />
-
-                    {/* Roster Athletics Import/Export */}
-                    <Button variant="outline" size="sm" onClick={() => document.getElementById('roster-entries-import')?.click()}>
-                        Import Roster (Zgłoszenia)
-                    </Button>
-                    <input
-                        id="roster-entries-import"
-                        type="file"
-                        accept=".csv"
-                        className="hidden"
-                        onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-
-                            const formData = new FormData();
-                            formData.append('file', file);
-
-                            try {
-                                await api.post(`/roster/import/entries/${meetingId}`, formData);
-                                queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
-                                alert('Zgłoszenia Roster zostały zaimportowane.');
-                            } catch (error) {
-                                alert('Błąd podczas importu zgłoszeń Roster.');
-                            }
-                            e.target.value = '';
-                        }}
-                    />
-
-                    <Button variant="outline" size="sm" onClick={() => document.getElementById('roster-results-import')?.click()}>
-                        Import Roster (Wyniki)
-                    </Button>
-                    <input
-                        id="roster-results-import"
-                        type="file"
-                        accept=".csv"
-                        className="hidden"
-                        onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-
-                            const formData = new FormData();
-                            formData.append('file', file);
-
-                            try {
-                                await api.post(`/roster/import/results/${meetingId}`, formData);
-                                queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
-                                alert('Wyniki Roster zostały zaimportowane.');
-                            } catch (error) {
-                                alert('Błąd podczas importu wyników Roster.');
-                            }
-                            e.target.value = '';
-                        }}
-                    />
-
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={async () => {
-                            try {
-                                const response = await api.get(`/roster/export/entries/${meetingId}`, {
-                                    responseType: 'blob'
-                                });
-                                const url = window.URL.createObjectURL(new Blob([response.data]));
-                                const link = document.createElement('a');
-                                link.href = url;
-                                link.setAttribute('download', `roster-entries-${meetingId}.csv`);
-                                document.body.appendChild(link);
-                                link.click();
-                                link.remove();
-                            } catch (error) {
-                                alert('Błąd podczas eksportu zgłoszeń Roster.');
-                            }
-                        }}
-                    >
-                        Eksport Roster (Zgłoszenia)
-                    </Button>
-
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={async () => {
-                            try {
-                                const response = await api.get(`/roster/export/results/${meetingId}`, {
-                                    responseType: 'blob'
-                                });
-                                const url = window.URL.createObjectURL(new Blob([response.data]));
-                                const link = document.createElement('a');
-                                link.href = url;
-                                link.setAttribute('download', `roster-results-${meetingId}.csv`);
-                                document.body.appendChild(link);
-                                link.click();
-                                link.remove();
-                            } catch (error) {
-                                alert('Błąd podczas eksportu wyników Roster.');
-                            }
-                        }}
-                    >
-                        Eksport Roster (Wyniki)
-                    </Button>
-
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                        onClick={() => {
-                            if (confirm('UWAGA! Czy na pewno usunąć WSZYSTKIE konkurencje i zgłoszenia? Tej operacji nie można cofnąć.')) {
-                                deleteAllMutation.mutate();
-                            }
-                        }}
-                    >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Wyczyść
-                    </Button>
-                    <Button size="icon" onClick={() => setIsFormOpen(!isFormOpen)}>
-                        <Plus className="h-4 w-4" />
+                        <Plus className={`h-5 w-5 transition-transform ${isFormOpen ? 'rotate-45 text-red-500' : ''}`} />
                     </Button>
                 </div>
+
+                <div className="relative">
+                    <Input
+                        placeholder="Szukaj konkurencji..."
+                        className="h-9 bg-slate-100 border-transparent focus:bg-white transition-all pl-9 text-xs font-medium"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                    <div className="absolute left-3 top-2.5 text-slate-400">
+                        <Hash className="h-4 w-4" />
+                    </div>
+                </div>
             </CardHeader>
-            <CardContent>
+
+            <CardContent className="p-0 flex-1 overflow-hidden flex flex-col min-h-0">
                 {isFormOpen && (
-                    <div className="mb-6 p-4 border rounded-md bg-slate-50">
-                        <h4 className="font-medium mb-3">Nowa konkurencja</h4>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <Input
-                                placeholder="Nazwa (np. 100 metrów)"
-                                value={newEvent.name}
-                                onChange={(e) => {
-                                    const name = e.target.value;
-                                    // Auto-generate eventCode from name
-                                    let autoEventCode = '';
-                                    const nameLower = name.toLowerCase();
-
-                                    // Track events
-                                    if (nameLower.includes('60') && nameLower.includes('przez')) autoEventCode = '60H';
-                                    else if (nameLower.includes('100') && nameLower.includes('przez')) autoEventCode = '100H';
-                                    else if (nameLower.includes('110') && nameLower.includes('przez')) autoEventCode = '110H';
-                                    else if (nameLower.includes('400') && nameLower.includes('przez')) autoEventCode = '400H';
-                                    else if (nameLower.includes('60')) autoEventCode = '60';
-                                    else if (nameLower.includes('100')) autoEventCode = '100';
-                                    else if (nameLower.includes('200')) autoEventCode = '200';
-                                    else if (nameLower.includes('400')) autoEventCode = '400';
-                                    else if (nameLower.includes('800')) autoEventCode = '800';
-                                    else if (nameLower.includes('1500')) autoEventCode = '1500';
-                                    else if (nameLower.includes('3000')) autoEventCode = '3000';
-                                    else if (nameLower.includes('5000')) autoEventCode = '5000';
-                                    else if (nameLower.includes('10000') || nameLower.includes('10 000')) autoEventCode = '10000';
-
-                                    // Field events
-                                    else if (nameLower.includes('wzwyż')) autoEventCode = 'HJ';
-                                    else if (nameLower.includes('tyczce') || nameLower.includes('tyczka')) autoEventCode = 'PV';
-                                    else if (nameLower.includes('dal')) autoEventCode = 'LJ';
-                                    else if (nameLower.includes('trójskok')) autoEventCode = 'TJ';
-                                    else if (nameLower.includes('kula')) autoEventCode = 'SP';
-                                    else if (nameLower.includes('dysk')) autoEventCode = 'DT';
-                                    else if (nameLower.includes('oszczep')) autoEventCode = 'JT';
-                                    else if (nameLower.includes('młot')) autoEventCode = 'HT';
-
-                                    // Relays
-                                    else if (nameLower.includes('4') && nameLower.includes('100')) autoEventCode = '4x100';
-                                    else if (nameLower.includes('4') && nameLower.includes('400')) autoEventCode = '4x400';
-
-                                    setNewEvent({ ...newEvent, name, eventCode: autoEventCode });
-                                }}
-                                required
-                            />
-                            <Input
-                                placeholder="Kod (np. 100M)"
-                                value={newEvent.code}
-                                onChange={(e) => setNewEvent({ ...newEvent, code: e.target.value })}
-                                required
-                            />
-                            <Input
-                                placeholder="Kod Roster (np. 100, HJ, SP) - auto-generowany"
-                                value={newEvent.eventCode}
-                                onChange={(e) => setNewEvent({ ...newEvent, eventCode: e.target.value })}
-                            />
-                            <select
-                                className="flex h-10 w-full rounded-md border border-slate-300 bg-background px-3 py-2 text-sm"
-                                value={newEvent.gender}
-                                onChange={(e) => setNewEvent({ ...newEvent, gender: e.target.value })}
-                            >
-                                <option value="M">Mężczyźni</option>
-                                <option value="K">Kobiety</option>
-                                <option value="MIX">Mix</option>
-                            </select>
-                            <Input
-                                placeholder="Grupa wiekowa (np. U18, Senior) - opcjonalne"
-                                value={newEvent.ageGroup}
-                                onChange={(e) => setNewEvent({ ...newEvent, ageGroup: e.target.value })}
-                            />
-                            <select
-                                className="flex h-10 w-full rounded-md border border-slate-300 bg-background px-3 py-2 text-sm"
-                                value={newEvent.stage}
-                                onChange={(e) => setNewEvent({ ...newEvent, stage: e.target.value })}
-                            >
-                                <option value="Final">Finał</option>
-                                <option value="Heat">Bieg</option>
-                                <option value="Semi-Final">Półfinał</option>
-                                <option value="Qualification">Kwalifikacje</option>
-                            </select>
-
-                            {/* Heights field - only for vertical jumps */}
-                            {(newEvent.eventCode === 'HJ' || newEvent.eventCode === 'PV') && (
-                                <div>
-                                    <label className="text-sm text-gray-600 mb-1 block">
-                                        Wysokości (oddzielone przecinkami, np. 1.40, 1.45, 1.50)
-                                    </label>
+                    <div className="mb-4 p-4 border border-slate-200 rounded-xl bg-white shadow-lg animate-in slide-in-from-top-2 duration-200 z-10">
+                        <form onSubmit={handleSubmit} className="space-y-3">
+                            <h4 className="font-bold text-xs uppercase text-slate-400">Nowa Konkurencja</h4>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="col-span-2">
                                     <Input
-                                        placeholder="1.40, 1.45, 1.50, 1.55, 1.60"
-                                        value={newEvent.heights}
-                                        onChange={(e) => setNewEvent({ ...newEvent, heights: e.target.value })}
+                                        placeholder="Nazwa (np. 100m M)"
+                                        className="h-8 text-xs font-bold"
+                                        value={newEvent.name}
+                                        onChange={(e) => handleNameChange(e.target.value)}
+                                        required
+                                        autoFocus
                                     />
                                 </div>
-                            )}
-
-                            <div className="flex justify-end gap-2">
-                                <Button type="button" variant="ghost" onClick={() => setIsFormOpen(false)}>Anuluj</Button>
-                                <Button type="submit" size="sm" disabled={createMutation.isPending}>Dodaj</Button>
+                                <Input
+                                    placeholder="Kod (100M)"
+                                    className="h-8 text-xs"
+                                    value={newEvent.code}
+                                    onChange={(e) => setNewEvent({ ...newEvent, code: e.target.value })}
+                                />
+                                <select
+                                    className="flex h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs shadow-sm"
+                                    value={newEvent.gender}
+                                    onChange={(e) => handleGenderChange(e.target.value)}
+                                >
+                                    <option value="M">Mężczyźni</option>
+                                    <option value="K">Kobiety</option>
+                                    <option value="MIX">Mix</option>
+                                </select>
                             </div>
+                            <Button type="submit" size="sm" className="w-full h-8 text-xs font-bold bg-slate-900 hover:bg-slate-800" disabled={createMutation.isPending}>
+                                {createMutation.isPending ? '...' : 'Dodaj'}
+                            </Button>
                         </form>
                     </div>
                 )}
 
-                <div className="space-y-2">
-                    {events?.map((event) => (
-                        <div
-                            key={event.id}
-                            className={`flex items-center justify-between p-3 border rounded-md cursor-pointer transition-colors ${selectedEventId === event.id ? 'bg-blue-50 border-blue-200' : 'hover:bg-slate-50'}`}
-                            onClick={() => onSelectEvent(event.id)}
-                        >
-                            <div>
-                                <span className="font-medium block">{event.name}</span>
-                                <span className="text-xs text-gray-500">{event.code} | {event.gender}</span>
-                            </div>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (confirm('Czy na pewno usunąć tę konkurencję?')) {
-                                        deleteMutation.mutate(event.id);
-                                    }
-                                }}
-                            >
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
+                <div className="overflow-y-auto pr-2 space-y-1 flex-1">
+                    {filteredEvents.length === 0 ? (
+                        <div className="text-center py-10 text-slate-400 text-xs">
+                            Brak wyników
                         </div>
-                    ))}
-                    {(!events || events.length === 0) && (
-                        <p className="text-gray-500 text-center py-4 text-sm">Brak konkurencji.</p>
+                    ) : (
+                        filteredEvents.map((event) => (
+                            <div
+                                key={event.id}
+                                className={`
+                                    group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all relative overflow-hidden
+                                    ${selectedEventId === event.id
+                                        ? 'bg-blue-600 shadow-md shadow-blue-200'
+                                        : 'hover:bg-white hover:shadow-sm text-slate-600'
+                                    }
+                                `}
+                                onClick={() => onSelectEvent(event.id)}
+                            >
+                                <div className="flex items-center gap-3 relative z-10">
+                                    <div className={`
+                                        w-1 h-8 rounded-full 
+                                        ${selectedEventId === event.id ? 'bg-white/30' : 'bg-slate-200 group-hover:bg-blue-400'}
+                                    `}></div>
+
+                                    <div className="flex flex-col">
+                                        <span className={`text-sm font-bold leading-none ${selectedEventId === event.id ? 'text-white' : 'text-slate-700'}`}>
+                                            {event.name}
+                                        </span>
+                                        <span className={`text-[10px] mt-1 font-medium ${selectedEventId === event.id ? 'text-blue-100' : 'text-slate-400'}`}>
+                                            {event.gender === 'M' ? 'Mężczyźni' : event.gender === 'K' ? 'Kobiety' : 'Mix'} • {event.code}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {selectedEventId === event.id && (
+                                    <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-blue-600 to-transparent pointer-events-none" />
+                                )}
+
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={`
+                                        h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition-all z-20
+                                        ${selectedEventId === event.id ? 'text-white hover:bg-white/20' : 'text-slate-400 hover:text-red-500 hover:bg-slate-100'}
+                                    `}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (confirm('Usunąć konkurencję?')) deleteMutation.mutate(event.id);
+                                    }}
+                                >
+                                    <Trash2 className="h-3 w-3" />
+                                </Button>
+                            </div>
+                        ))
                     )}
                 </div>
             </CardContent>

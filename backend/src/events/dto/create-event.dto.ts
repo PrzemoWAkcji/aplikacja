@@ -7,5 +7,6 @@ export class CreateEventDto {
     eventCode?: string; // Roster Athletics event code
     ageGroup?: string; // U16, U18, U20, Senior, etc.
     stage?: string; // Final, Heat, Semi-Final, Qualification
+    model?: string; // Standard, Technical 3+3, etc.
     heights?: string; // JSON string array for vertical jumps
 }

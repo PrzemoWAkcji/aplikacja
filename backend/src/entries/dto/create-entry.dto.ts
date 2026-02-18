@@ -10,4 +10,16 @@ export class CreateEntryDto {
     club?: string;
     pb?: string;
     sb?: string;
+    birthDate?: string | Date;
+    yearOfBirth?: number;
+    firstName?: string;
+    lastName?: string;
+    middleName?: string;
+    gender?: string;
+    countryCode?: string;
+    tilastopajaId?: string;
+    entryId?: string;
+    startListId?: string;
+    seedingResult?: string;
+    relaySquad?: string; // JSON array of relay members
 }

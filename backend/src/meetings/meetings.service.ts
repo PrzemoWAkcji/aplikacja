@@ -2,18 +2,23 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
 import { UpdateMeetingDto } from './dto/update-meeting.dto';
+import * as fs from 'fs';
+import * as path from 'path';
+import { Response } from 'express';
 
 @Injectable()
 export class MeetingsService {
     constructor(private prisma: PrismaService) { }
 
     create(createMeetingDto: CreateMeetingDto, organizerId: string) {
+        const { date, endDate, ...rest } = createMeetingDto;
         return this.prisma.meeting.create({
             data: {
-                ...createMeetingDto,
-                date: new Date(createMeetingDto.date),
+                ...rest,
+                date: new Date(date),
+                endDate: endDate ? new Date(endDate) : null,
                 organizerId,
-            },
+            } as any,
         });
     }
 
@@ -29,16 +34,30 @@ export class MeetingsService {
         return this.prisma.meeting.findUnique({
             where: { id },
             include: {
-                events: true,
+                events: {
+                    include: {
+                        entries: {
+                            select: {
+                                heat: true,
+                            },
+                        },
+                    },
+                    orderBy: {
+                        startTime: 'asc',
+                    },
+                },
             },
         });
     }
 
     update(id: string, updateMeetingDto: UpdateMeetingDto) {
-        const { date, ...rest } = updateMeetingDto;
+        const { date, endDate, ...rest } = updateMeetingDto;
         const data: any = { ...rest };
         if (date) {
             data.date = new Date(date);
+        }
+        if (endDate) {
+            data.endDate = new Date(endDate);
         }
         return this.prisma.meeting.update({
             where: { id },
@@ -109,5 +128,74 @@ export class MeetingsService {
                 },
             },
         });
+    }
+
+    // --- BRANDING ---
+
+    private getUploadsPath() {
+        const uploadDir = path.join(process.cwd(), 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        return uploadDir;
+    }
+
+    async uploadLogo(id: string, file: Express.Multer.File) {
+        if (!file) throw new Error('No file uploaded');
+        const ext = path.extname(file.originalname);
+        const filename = `logo-${id}-${Date.now()}${ext}`;
+        const uploadDir = this.getUploadsPath();
+        const filepath = path.join(uploadDir, filename);
+
+        fs.writeFileSync(filepath, file.buffer);
+
+        // Update DB
+        return this.prisma.meeting.update({
+            where: { id },
+            data: { organizerLogo: filename },
+        });
+    }
+
+    async uploadSponsor(id: string, file: Express.Multer.File) {
+        if (!file) throw new Error('No file uploaded');
+        const ext = path.extname(file.originalname);
+        const filename = `sponsor-${id}-${Date.now()}-${Math.round(Math.random() * 1000)}${ext}`;
+        const uploadDir = this.getUploadsPath();
+        const filepath = path.join(uploadDir, filename);
+
+        fs.writeFileSync(filepath, file.buffer);
+
+        // Update DB - Append to array
+        const meeting = await this.prisma.meeting.findUnique({ where: { id }, select: { sponsorLogos: true } });
+        const currentLogos = meeting?.sponsorLogos || [];
+
+        return this.prisma.meeting.update({
+            where: { id },
+            data: { sponsorLogos: [...currentLogos, filename] },
+        });
+    }
+
+    async removeLogo(id: string) {
+        return this.prisma.meeting.update({
+            where: { id },
+            data: { organizerLogo: null },
+        });
+        // Optionally delete file from disk, but skipping for simplicity
+    }
+
+    async clearSponsors(id: string) {
+        return this.prisma.meeting.update({
+            where: { id },
+            data: { sponsorLogos: [] },
+        });
+    }
+
+    getUploadedFile(filename: string, res: Response) {
+        const filepath = path.join(this.getUploadsPath(), filename);
+        if (fs.existsSync(filepath)) {
+            res.sendFile(filepath);
+        } else {
+            res.status(404).send('File not found');
+        }
     }
 }

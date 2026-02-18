@@ -33,9 +33,11 @@ services:
       dockerfile: Dockerfile
     container_name: aplikacja-backend
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-admin}:${DB_PASSWORD:-secret_password_here}@postgres:5432/${DB_NAME:-aplikacja_db}?schema=public
+      DATABASE_URL: postgresql://admin:secret_password_here@postgres:5432/aplikacja_db?schema=public
       PORT: 3000
-      JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-me}
+      JWT_SECRET: super-secret-key
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - "3000:3000"
     depends_on:

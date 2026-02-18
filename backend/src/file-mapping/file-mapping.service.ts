@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EntriesService } from '../entries/entries.service';
 import * as Papa from 'papaparse';
 import * as iconv from 'iconv-lite';
 
 @Injectable()
 export class FileMappingService {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private entriesService: EntriesService
+    ) { }
 
     async exportStartListCsv(eventId: string): Promise<string> {
         const event = await this.prisma.event.findUnique({
@@ -50,9 +54,8 @@ export class FileMappingService {
             evtContent += `${event.code},1,${heat},${event.name},100\n`;
 
             for (const entry of heatEntries) {
-                const parts = entry.athleteName.trim().split(' ');
-                const lastName = parts[0] || '';
-                const firstName = parts.slice(1).join(' ') || '';
+                const lastName = entry.lastName || entry.athleteName.trim().split(' ').slice(1).join(' ') || entry.athleteName;
+                const firstName = entry.firstName || entry.athleteName.trim().split(' ')[0] || '';
                 evtContent += `${entry.bib || ''},${entry.lane || ''},${lastName},${firstName},\n`;
             }
             evtContent += '\n';
@@ -64,18 +67,25 @@ export class FileMappingService {
     async importFederationCsv(meetingId: string, fileBuffer: Buffer): Promise<{ count: number }> {
         // Try Windows-1250 first as it's common in Polish sport systems
         let content = iconv.decode(fileBuffer, 'windows-1250');
-
-        // Simple heuristic: if decoding results in replacement characters mostly, try UTF-8
-        // Or better: just try parsing. If we see specific Polish headers, we proceed.
+        console.log('Importing Federation CSV, length:', content.length);
 
         let parsed = Papa.parse(content, { header: true, skipEmptyLines: true, delimiter: ';' });
 
-        // If parsing failed to find known headers, maybe it was utf-8?
-        // (This is a simplification, but often enough)
-
         const entries = parsed.data as any[];
+        console.log('Parsed entries count:', entries.length);
+
         let count = 0;
 
+        const relayGroups = new Map<string, any[]>();
+
+        const isRelay = (code: string, name: string) => {
+            const combined = ((code || '') + ' ' + (name || '')).toUpperCase();
+            // Robust check: 4x, 4 x, 4*, Sztafeta
+            const isRelay = /4\s*[xX*]\s*\d+/.test(combined) || combined.includes('SZTAFETA') || combined.includes('RELAY');
+            return isRelay;
+        };
+
+        // 1. First pass: Handle individuals and grouping relays
         for (const row of entries) {
             // Support various formats
             let athleteName = row['Imię i Nazwisko'] || row['Zawodnik'] || row['Athlete'];
@@ -85,87 +95,191 @@ export class FileMappingService {
                 athleteName = `${row['Imię']} ${row['Nazwisko']}`;
             }
 
-            // Event mapping
-            // 'NazwaPZLA' often contains short code like 'K100m'
-            // 'Pełna nazwa' contains full name like '100 metrów kobiet'
-            const eventCode = row['NazwaPZLA'] || row['Konkurencja'] || row['KonkurencjaKod'] || row['Event'];
-            const eventName = row['Pełna nazwa'] || eventCode; // Fallback to code if name missing
+            // Event mapping — use 'Sztafeta' column to detect relay code in PZLA format
+            const rawEventCode = row['NazwaPZLA'] || row['Konkurencja'] || row['KonkurencjaKod'] || row['Event'];
+            const eventCode = (rawEventCode || '').trim();
+            const eventName = (row['Pełna nazwa'] || eventCode || '').trim();
+            const sztafetaCol = (row['Sztafeta'] || '').trim(); // PZLA column indicating relay membership
 
-            const bib = row['NrStart'] || row['Nr'] || row['Bib'];
-            const club = row['Klub_nazwa'] || row['Klub'] || '';
+            const bib = (row['NrStart'] || row['Nr'] || row['Bib'] || '').trim();
+            const club = (row['Klub_nazwa'] || row['Klub'] || '').trim();
             const pb = row['PB'] || '';
             const sb = row['SB'] || '';
             const heat = row['Seria'] ? parseInt(row['Seria'], 10) : null;
             const lane = row['Tor'] ? parseInt(row['Tor'], 10) : null;
 
-            if (!athleteName || !eventCode) {
-                console.warn('Skipping row due to missing data:', row);
+            if (!eventCode) {
                 continue;
             }
 
-            // Find or create event
-            let event = await this.prisma.event.findFirst({
-                where: { meetingId, code: eventCode },
-            });
+            // Detect relay: either by event code/name pattern OR by 'Sztafeta' column
+            const rowIsRelay = isRelay(eventCode, eventName) || (sztafetaCol.length > 0 && isRelay(sztafetaCol, ''));
 
-            if (!event) {
-                const gender = this.guessGender(eventCode, eventName);
-                const enhancedName = this.enhanceEventNameWithHurdles(eventName || eventCode, eventCode, gender);
+            if (rowIsRelay) {
+                // Use Sztafeta col as the canonical relay event code if available, else eventCode
+                const relayEventCode = sztafetaCol || eventCode;
 
-                event = await this.prisma.event.create({
-                    data: {
-                        name: enhancedName,
-                        code: eventCode,
-                        gender,
-                        meetingId,
-                    },
-                });
-            }
+                // Group by relay event code + club (ignore heat/lane for relays — one team per club per event)
+                const key = `${relayEventCode}|${club}`;
+                if (!relayGroups.has(key)) {
+                    relayGroups.set(key, []);
+                }
+                const group = relayGroups.get(key)!;
 
-            // Create entry with extended Roster fields
-            const nameParts = athleteName.trim().split(' ');
-            const firstName = row['Imię'] || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
-            const lastName = row['Nazwisko'] || (nameParts.length > 0 ? nameParts[0] : '');
+                // Parse member details
+                const firstName = (row['Imię'] || '').trim();
+                const lastName = (row['Nazwisko'] || '').trim();
 
-            // Parse date of birth if available
-            let dateOfBirth = null;
-            let yearOfBirth = null;
-            if (row['DataUrodzenia'] || row['RokUrodzenia']) {
-                if (row['DataUrodzenia']) {
-                    const parsed = new Date(row['DataUrodzenia']);
-                    if (!isNaN(parsed.getTime())) {
-                        dateOfBirth = parsed;
-                        yearOfBirth = parsed.getFullYear();
-                    }
+                // Parse birth year from DataUr (PZLA format) or DataUrodzenia or RokUrodzenia
+                let yearOfBirth: number | null = null;
+                const birthDateStr = row['DataUr'] || row['DataUrodzenia'];
+                if (birthDateStr) {
+                    const d = new Date(birthDateStr);
+                    if (!isNaN(d.getTime())) yearOfBirth = d.getFullYear();
                 }
                 if (!yearOfBirth && row['RokUrodzenia']) {
                     yearOfBirth = parseInt(row['RokUrodzenia'], 10);
                 }
+
+                // Only add members that have actual name data
+                if (firstName || lastName) {
+                    group.push({
+                        firstName,
+                        lastName,
+                        bib,
+                        yearOfBirth
+                    });
+                }
+
+                // Store raw row on last member for metadata extraction later
+                if (group.length > 0) {
+                    group[group.length - 1].rawRow = row;
+                }
+
+                continue;
             }
 
-            await this.prisma.entry.create({
-                data: {
-                    athleteName,
-                    firstName: firstName || undefined,
-                    lastName: lastName || undefined,
-                    bib: bib?.toString(),
-                    club: club,
-                    pb: pb,
-                    sb: sb,
-                    heat: heat || undefined,
-                    lane: lane || undefined,
-                    eventId: event.id,
-                    status: 'CONFIRMED',
-                    countryCode: row['KrajKod'] || 'POL',
-                    dateOfBirth: dateOfBirth || undefined,
-                    yearOfBirth: yearOfBirth || undefined,
-                    gender: event.gender === 'MIX' ? undefined : event.gender,
-                },
+            if (!athleteName) {
+                console.warn('Skipping individual row due to missing name:', row);
+                continue;
+            }
+
+            // Individual entry processing
+            if (!athleteName) {
+                continue;
+            }
+
+            // Find or create event
+            let event = await this.findOrCreateEventByCode(meetingId, eventCode, eventName);
+
+            const firstName = (row['Imię'] || '').trim();
+            const lastName = (row['Nazwisko'] || '').trim();
+
+            let dateOfBirth = null;
+            let yearOfBirth = null;
+            const birthDateStr = row['DataUr'] || row['DataUrodzenia'];
+            if (birthDateStr) {
+                const parsed = new Date(birthDateStr);
+                if (!isNaN(parsed.getTime())) {
+                    dateOfBirth = parsed;
+                    yearOfBirth = parsed.getFullYear();
+                }
+            }
+            if (!yearOfBirth && row['RokUrodzenia']) {
+                yearOfBirth = parseInt(row['RokUrodzenia'], 10);
+            }
+
+            await this.entriesService.create({
+                athleteName,
+                firstName: firstName || undefined,
+                lastName: lastName || undefined,
+                bib: bib?.toString(),
+                club: club,
+                pb: pb,
+                sb: sb,
+                heat: heat || undefined,
+                lane: lane || undefined,
+                eventId: event.id,
+                status: 'CONFIRMED',
+                countryCode: row['KrajKod'] || 'POL',
+                birthDate: dateOfBirth || undefined,
+                yearOfBirth: yearOfBirth || undefined,
+                gender: event.gender === 'MIX' ? undefined : event.gender,
+            });
+            count++;
+        }
+
+        // 2. Process Relay Groups
+        console.log(`Relay groups found: ${relayGroups.size}`);
+        for (const [key, members] of relayGroups) {
+            if (members.length === 0) continue;
+
+            // Extract common data from a member with rawRow
+            const memberWithRow = members.find(m => m.rawRow) || members[0];
+            const row = memberWithRow.rawRow || {};
+
+            // Use the relay event code from the key (first part before |)
+            const relayEventCode = key.split('|')[0].trim();
+            const eventName = (row['Pełna nazwa'] || relayEventCode || '').trim();
+            const club = (row['Klub_nazwa'] || row['Klub'] || 'Sztafeta').trim();
+            const heat = row['Seria'] ? parseInt(row['Seria'], 10) : null;
+            const lane = row['Tor'] ? parseInt(row['Tor'], 10) : null;
+
+            // Find or create event using normalized code
+            let event = await this.findOrCreateEventByCode(meetingId, relayEventCode, eventName);
+
+            // Build squad JSON — only members with actual names
+            const relaySquad = members
+                .filter(m => m.firstName || m.lastName)
+                .map(m => ({
+                    firstName: m.firstName,
+                    lastName: m.lastName,
+                    bib: m.bib,
+                    yearOfBirth: m.yearOfBirth
+                }));
+
+            console.log(`Creating relay entry: club=${club}, event=${event.name} (${event.code}), members=${relaySquad.length}`);
+            console.log('  Squad:', JSON.stringify(relaySquad));
+
+            // Create Entry for the Team
+            await this.entriesService.create({
+                athleteName: club,
+                club: club,
+                heat: heat || undefined,
+                lane: lane || undefined,
+                eventId: event.id,
+                status: 'CONFIRMED',
+                countryCode: row['KrajKod'] || 'POL',
+                gender: event.gender === 'MIX' ? undefined : event.gender,
+                relaySquad: JSON.stringify(relaySquad)
             });
             count++;
         }
 
         return { count };
+    }
+    private async findOrCreateEventByCode(meetingId: string, eventCode: string, eventName: string) {
+        const code = eventCode.trim();
+
+        let event = await this.prisma.event.findFirst({
+            where: { meetingId, code },
+        });
+
+        if (!event) {
+            const gender = this.guessGender(code, eventName);
+            const enhancedName = this.enhanceEventNameWithHurdles(eventName || code, code, gender);
+
+            event = await this.prisma.event.create({
+                data: {
+                    name: enhancedName,
+                    code,
+                    gender,
+                    meetingId,
+                },
+            });
+        }
+
+        return event;
     }
 
     private guessGender(code: string, name: string): 'M' | 'F' | 'MIX' {

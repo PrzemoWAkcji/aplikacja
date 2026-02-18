@@ -31,16 +31,46 @@ model User {
   meetings  Meeting[]
 }
 
+enum MeetingSeason {
+  STADIUM
+  INDOOR
+}
+
+enum MeetingType {
+  INTERNATIONAL
+  NATIONAL
+  REGIONAL
+  SCHOOL
+  TRAINING
+  TEST
+}
+
+enum MeetingStatus {
+  DRAFT
+  SCHEDULED
+  OPEN
+  FINISHED
+  CANCELLED
+}
+
 model Meeting {
-  id          String   @id @default(uuid())
-  name        String
-  date        DateTime
-  location    String
-  organizer   User     @relation(fields: [organizerId], references: [id])
-  organizerId String
-  events      Event[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String        @id @default(uuid())
+  name          String
+  date          DateTime
+  endDate       DateTime?
+  location      String
+  city          String?
+  country       String?       @default("POL")
+  season        MeetingSeason @default(STADIUM)
+  type          MeetingType   @default(REGIONAL)
+  status        MeetingStatus @default(DRAFT)
+  organizer     User          @relation(fields: [organizerId], references: [id])
+  organizerId   String
+  organizerLogo String?
+  sponsorLogos  String[] // URLs or paths to sponsor logos
+  events        Event[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }
 
 model Event {
@@ -51,6 +81,8 @@ model Event {
   gender         String // M, K, MIX
   ageGroup       String? // U16, U18, U20, Senior
   stage          String   @default("Final") // Heat, Semi-Final, Final, etc.
+  model          String?  // Roster Athletics competition model (Standard, Field 3+3, etc.)
+  requiresWind   Boolean  @default(false)
   startTime      DateTime?
   heights        String? // JSON array of heights for vertical jumps, e.g., "[1.40, 1.45, 1.50]"
   meeting        Meeting  @relation(fields: [meetingId], references: [id])
@@ -99,11 +131,16 @@ model Entry {
   // Relations
   event          Event       @relation(fields: [eventId], references: [id])
   eventId        String
+  athlete        Athlete?    @relation(fields: [athleteId], references: [id])
+  athleteId      String?
   status         EntryStatus @default(PENDING)
   result         Result?
   
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+
+  // Relay specific
+  relaySquad     String?     // JSON array of relay members [{firstName, lastName, ...}]
 }
 
 model Result {
@@ -129,6 +166,10 @@ model Result {
   round6Result   String?
   bestResult     String?  // Best result from all rounds
   
+  // Detailed results for technical events
+  verticalJSON   String?  // JSON string: { "1.40": "O", "1.45": "XO", "1.50": "XXX" }
+  fieldJSON      String?  // JSON array of attempts: ["12.45", "X", "13.01", ...]
+  
   // Status
   status         String   @default("OK") // OK, DNS, DNF, DQ, NM
   
@@ -138,5 +179,30 @@ model Result {
   
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+
+model Athlete {
+  id             String    @id @default(uuid())
+  // Use unique key? Or just search? 
+  // Let us store full name
+  firstName      String?
+  lastName       String?
+  athleteName    String    // Full name or display name
+
+  gender         String?
+  club           String?
+  countryCode    String?   @default("POL")
+  birthDate      DateTime?
+  yearOfBirth    Int?
+  
+  // Performance Summary
+  pb             String?   
+  sb             String?
+  
+  entries        Entry[]
+  
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 

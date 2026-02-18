@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, UseInterceptors, UploadedFile, Res } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { MeetingsService } from './meetings.service';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
 import { UpdateMeetingDto } from './dto/update-meeting.dto';
@@ -47,6 +48,41 @@ export class MeetingsController {
     @Delete(':id/events')
     removeAllEvents(@Param('id') id: string) {
         return this.meetingsService.deleteAllEvents(id);
+    }
+
+    @Post(':id/logo')
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.ORGANIZER, Role.ADMIN)
+    @UseInterceptors(FileInterceptor('file'))
+    uploadLogo(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+        return this.meetingsService.uploadLogo(id, file);
+    }
+
+    @Post(':id/sponsor')
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.ORGANIZER, Role.ADMIN)
+    @UseInterceptors(FileInterceptor('file'))
+    uploadSponsor(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+        return this.meetingsService.uploadSponsor(id, file);
+    }
+
+    @Delete(':id/logo')
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.ORGANIZER, Role.ADMIN)
+    removeLogo(@Param('id') id: string) {
+        return this.meetingsService.removeLogo(id);
+    }
+
+    @Delete(':id/sponsors')
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.ORGANIZER, Role.ADMIN)
+    clearSponsors(@Param('id') id: string) {
+        return this.meetingsService.clearSponsors(id);
+    }
+
+    @Get('uploads/:filename')
+    getUploadedFile(@Param('filename') filename: string, @Res() res: any) {
+        return this.meetingsService.getUploadedFile(filename, res);
     }
 
     @Get(':id/print-data')

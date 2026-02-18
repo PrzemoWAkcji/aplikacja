@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../store/auth-store';
 import api from '../../lib/api';
@@ -13,24 +13,42 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const router = useRouter();
-    const setAuth = useAuthStore((state: any) => state.setAuth);
+    const setAuth = useAuthStore((state) => state.setAuth);
+    const _hasHydrated = useAuthStore((state) => state._hasHydrated);
+    const token = useAuthStore((state) => state.token);
+
+    useEffect(() => {
+        if (_hasHydrated && token) {
+            router.push('/dashboard');
+        }
+    }, [_hasHydrated, token, router]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
 
         try {
+            // 1. Zaloguj się i pobierz token
             const response = await api.post('/auth/login', { email, password });
             const { access_token } = response.data;
 
-            // Fetch user profile to get details
+            // 2. Ustaw sam token w store (bez danych użytkownika jeszcze)
+            // To pozwoli interceptorowi w api.ts dodać ten token do kolejnego żądania
+            setAuth(access_token, null as any);
+
+            // 3. Pobierz profil (PRZEKAZUJEMY TOKEN RĘCZNIE, ABY UNIKNĄĆ OPÓŹNIEŃ STORE)
             const profileResponse = await api.get('/auth/profile', {
-                headers: { Authorization: `Bearer ${access_token}` }
+                headers: {
+                    Authorization: `Bearer ${access_token}`
+                }
             });
 
+            // 4. Zaktualizuj store o pełne dane użytkownika
             setAuth(access_token, profileResponse.data);
+
             router.push('/dashboard');
         } catch (err: any) {
+            console.error('Błąd logowania:', err);
             setError(err.response?.data?.message || 'Nieudane logowanie');
         }
     };

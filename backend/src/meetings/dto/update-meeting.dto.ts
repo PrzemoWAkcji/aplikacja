@@ -1,4 +1,12 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateMeetingDto } from './create-meeting.dto';
-
-export class UpdateMeetingDto extends PartialType(CreateMeetingDto) { }
+export class UpdateMeetingDto {
+    name?: string;
+    date?: string;
+    endDate?: string;
+    location?: string;
+    city?: string;
+    country?: string;
+    season?: string;
+    type?: string;
+    status?: string;
+    sponsorLogos?: string[];
+}

@@ -38,7 +38,7 @@ export class EventsService {
     }
 
     async generateStartList(id: string, params: GenerateStartListDto) {
-        const { lanes = 8, method = 'RANDOM', criterion = 'SB' } = params;
+        const { lanes = 8, method = 'RANDOM', criterion = 'SB', heats, laneAssignment = 'STANDARD' } = params;
 
         const entries = await this.prisma.entry.findMany({
             where: { eventId: id, status: 'CONFIRMED' },
@@ -53,46 +53,57 @@ export class EventsService {
         }));
 
         // 2. Sort entries (Best to Worst -> Lowest time to Highest time)
-        // Assuming Track events (Running) where lower is better.
-        // For Field events, higher is better.
-        // TODO: Add event type check. For MVP assuming Runs (Time).
         const sorted = entriesWithTime.sort((a, b) => a.perfValue - b.perfValue);
 
         // 3. Group into Heats
-        let heats: typeof sorted[] = [];
         const totalEntries = sorted.length;
-        const heatCount = Math.ceil(totalEntries / lanes);
+        let heatCount = 0;
 
+        if (heats && heats > 0) {
+            heatCount = heats;
+        } else {
+            heatCount = Math.ceil(totalEntries / lanes);
+        }
+
+        // Calculate balanced sizes
+        const baseSize = Math.floor(totalEntries / heatCount);
+        const remainder = totalEntries % heatCount;
+        // The first 'remainder' heats get baseSize + 1? Or the last?
+        // It depends on the method.
+        // We prep an array of target sizes for each heat index [0...heatCount-1]
+        const heatSizes = new Array(heatCount).fill(baseSize);
+
+        let groupedHeats: typeof sorted[] = [];
+        for (let i = 0; i < heatCount; i++) groupedHeats.push([]);
+
+        // Method-based distribution
         if (method === 'RANDOM') {
-            // Random shuffle
+            // Distribute remainder randomly or to first heats?
+            // Usually simply 0..remainder-1 get +1
+            for (let i = 0; i < remainder; i++) heatSizes[i]++;
+
             const shuffled = [...sorted].sort(() => 0.5 - Math.random());
+            let offset = 0;
             for (let i = 0; i < heatCount; i++) {
-                heats.push(shuffled.slice(i * lanes, (i + 1) * lanes));
+                groupedHeats[i] = shuffled.slice(offset, offset + heatSizes[i]);
+                offset += heatSizes[i];
             }
         } else if (method === 'SNAKE' || method === 'ZIGZAG') {
-            // Initialize empty heats
-            for (let i = 0; i < heatCount; i++) heats.push([]);
-
-            // Distribute (ZigZag for balanced heats)
-            // Snake adds reversal in direction? No, typically ZigZag is 1->H1, 2->H2...
-            // "Roster" Snake seeding usually refers to ZigZag distribution to balance heats.
-            // Let's implement standard ZigZag distribution.
-            // 0, 1, 2 ... N-1, N-1 ... 2, 1, 0 (Snake distribution actually)
+            // These methods naturally balance, so we just run them.
+            // ZIGZAG: 0, 1, 2, 0, 1, 2...
+            // SNAKE: 0, 1, 2, 2, 1, 0...
 
             let currentHeat = 0;
             let direction = 1;
 
             if (method === 'ZIGZAG') {
-                // Simple ZigZag: 0, 1, 2... N-1, 0, 1, 2...
-                // This creates unbalanced heats (Heat 1 is always strongest).
-                // "Serpentine" (Snake) is better.
                 for (let i = 0; i < totalEntries; i++) {
-                    heats[i % heatCount].push(sorted[i]);
+                    groupedHeats[i % heatCount].push(sorted[i]);
                 }
             } else {
-                // SNAKE (Serpentine)
+                // SNAKE
                 for (const entry of sorted) {
-                    heats[currentHeat].push(entry);
+                    groupedHeats[currentHeat].push(entry);
                     if (direction === 1) {
                         if (currentHeat === heatCount - 1) {
                             direction = -1;
@@ -108,44 +119,72 @@ export class EventsService {
                     }
                 }
             }
-        } else {
-            // BEST_FROM_LAST (Standard Series Seeding)
-            // Slowest -> Heat 1, Fastest -> Heat N.
-            // Sorted is Best->Worst.
-            // Reverse sorted: Worst->Best.
-            const reversed = [...sorted].reverse();
+        } else if (method === 'BEST_FROM_LAST') {
+            // Goal: Fastest in LAST heat.
+            // Heats should be balanced.
+            // Remainder (larger heats) should go to the LAST heats (Fastest).
+            // Example: 81 entries, 11 heats. Remainder 4.
+            // Heats 0..6 (Slow): 7 entries.
+            // Heats 7..10 (Fast): 8 entries.
+
+            for (let i = 0; i < remainder; i++) {
+                // Add to last heats: heatCount - 1 - i
+                heatSizes[heatCount - 1 - i]++;
+            }
+
+            const remainingEntries = [...sorted]; // Sort: Best -> Worst
+
+            // We fill from LAST heat (Fastest) to FIRST (Slowest)
+            // Heat Last gets Top 'size' entries.
+            for (let i = heatCount - 1; i >= 0; i--) {
+                const size = heatSizes[i];
+                const chunk = remainingEntries.splice(0, size);
+                groupedHeats[i] = chunk;
+            }
+
+        } else if (method === 'BEST_FROM_FIRST') {
+            // Goal: Fastest in FIRST heat.
+            // Remainder (larger heats) should go to FIRST heats (Fastest).
+
+            for (let i = 0; i < remainder; i++) {
+                heatSizes[i]++;
+            }
+
+            const remainingEntries = [...sorted];
+
+            // Fill from First
             for (let i = 0; i < heatCount; i++) {
-                // Take chunk
-                const chunk = reversed.slice(i * lanes, (i + 1) * lanes);
-                heats.push(chunk);
+                const size = heatSizes[i];
+                const chunk = remainingEntries.splice(0, size);
+                groupedHeats[i] = chunk;
             }
         }
 
         // 4. Assign Lanes and Persist
         // Lane order (Middle-Out preferences)
-        const laneOrder = this.getLaneOrder(lanes);
+        const laneOrder = this.getLaneOrder(lanes, laneAssignment); // Use original 'lanes' for preferred lane assignment order
+        // Note: max heat size might be > lanes if forced heats resulted in overcrowding.
+        const maxHeatSize = Math.max(...groupedHeats.map(h => h.length));
+
+        // Extend lane order linearly if needed
+        for (let i = laneOrder.length + 1; i <= maxHeatSize; i++) {
+            if (!laneOrder.includes(i)) laneOrder.push(i);
+        }
 
         const updatePromises = [];
         let heatNumber = 1;
 
-        for (const heatEntries of heats) {
-            // Sort heat entries by performance (Best -> Worst) within the heat
-            // to assign best lanes to best athletes.
-            // If method was RANDOM, local sort doesn't make sense? 
-            // Yes, usually even in random heats, you put best PB on best lane if available.
-            // But if completely random, just assign as is.
-            // Let's sort by perf for lane assignment always, unless Random.
+        for (const heatEntries of groupedHeats) {
             if (method !== 'RANDOM') {
                 heatEntries.sort((a, b) => a.perfValue - b.perfValue);
             }
 
             // Assign lanes
+            // Assign lanes
             for (let i = 0; i < heatEntries.length; i++) {
                 const entry = heatEntries[i];
                 // Get preferred lane based on rank (i)
                 // If specific rules/lanes provided, use them.
-                // Default Middle-Out.
-                // If more entries than lanes (shouldn't happen in heats logic above), overflow.
 
                 // Map rank (i) to lane from order array
                 // i=0 (Best) -> laneOrder[0] (Center)
@@ -174,8 +213,10 @@ export class EventsService {
 
     private parsePerformance(perf: string | null): number {
         if (!perf) return Infinity;
-        const p = perf.trim().toUpperCase().replace(',', '.');
-        if (['', 'NM', 'DNF', 'DNS', 'DQ', 'X'].includes(p)) return Infinity;
+        // Remove quotes (' or "), trim, uppercase, replace , with .
+        const p = perf.trim().toUpperCase().replace(/['"]/g, '').replace(',', '.');
+
+        if (['', 'NM', 'DNF', 'DNS', 'DQ', 'X', '-'].includes(p)) return Infinity;
 
         // Try parsing numbers
         // Format: SS.ms or MM:SS.ms
@@ -193,7 +234,16 @@ export class EventsService {
         return isNaN(seconds) ? Infinity : seconds;
     }
 
-    private getLaneOrder(lanes: number): number[] {
+    private getLaneOrder(lanes: number, assignment: string = 'STANDARD'): number[] {
+        if (assignment === 'RANDOM') {
+            const order = Array.from({ length: lanes }, (_, i) => i + 1);
+            return order.sort(() => 0.5 - Math.random());
+        }
+        if (assignment === 'INSIDE_OUT') {
+            return Array.from({ length: lanes }, (_, i) => i + 1);
+        }
+
+        // STANDARD (Middle-Out)
         // Generate Middle-Out order: [4, 5, 3, 6, 2, 7, 1, 8] for 8 lanes
         const order: number[] = [];
         const center = Math.ceil(lanes / 2);
@@ -256,5 +306,145 @@ export class EventsService {
         return this.prisma.event.delete({
             where: { id },
         });
+    }
+
+    async splitMultiEvent(id: string) {
+        const mainEvent = await this.prisma.event.findUnique({
+            where: { id },
+            include: { entries: true }
+        });
+
+        if (!mainEvent) throw new Error('Event not found');
+
+        const nameLower = mainEvent.name.toLowerCase();
+        let subEvents: { name: string, code: string, wind?: boolean }[] = [];
+
+        // 1. DECATHLON (M - Outdoor)
+        if (nameLower.includes('dziesięciobój') || nameLower.includes('decathlon')) {
+            subEvents = [
+                { name: '100 m', code: '100', wind: true },
+                { name: 'Skok w dal', code: 'LJ', wind: true },
+                { name: 'Pchnięcie kulą', code: 'SP' },
+                { name: 'Skok wzwyż', code: 'HJ' },
+                { name: '400 m', code: '400' },
+                { name: '110 m ppł', code: '110H', wind: true },
+                { name: 'Rzut dyskiem', code: 'DT' },
+                { name: 'Skok o tyczce', code: 'PV' },
+                { name: 'Rzut oszczepem', code: 'JT' },
+                { name: '1500 m', code: '1500' }
+            ];
+        }
+        // 2. HEPTATHLON (K - Outdoor)
+        else if ((nameLower.includes('siedmiobój') || nameLower.includes('heptathlon')) && mainEvent.gender === 'F') {
+            subEvents = [
+                { name: '100 m ppł', code: '100H', wind: true },
+                { name: 'Skok wzwyż', code: 'HJ' },
+                { name: 'Pchnięcie kulą', code: 'SP' },
+                { name: '200 m', code: '200', wind: true },
+                { name: 'Skok w dal', code: 'LJ', wind: true },
+                { name: 'Rzut oszczepem', code: 'JT' },
+                { name: '800 m', code: '800' }
+            ];
+        }
+        // 3. HEPTATHLON (M - Indoor)
+        else if ((nameLower.includes('siedmiobój') || nameLower.includes('heptathlon')) && mainEvent.gender === 'M') {
+            subEvents = [
+                { name: '60 m', code: '60' },
+                { name: 'Skok w dal', code: 'LJ' },
+                { name: 'Pchnięcie kulą', code: 'SP' },
+                { name: 'Skok wzwyż', code: 'HJ' },
+                { name: '60 m ppł', code: '60H' },
+                { name: 'Skok o tyczce', code: 'PV' },
+                { name: '1000 m', code: '1000' }
+            ];
+        }
+        // 4. PENTATHLON (K - Indoor)
+        else if (nameLower.includes('pięciobój') || nameLower.includes('pentathlon')) {
+            subEvents = [
+                { name: '60 m ppł', code: '60H' },
+                { name: 'Skok wzwyż', code: 'HJ' },
+                { name: 'Pchnięcie kulą', code: 'SP' },
+                { name: 'Skok w dal', code: 'LJ' },
+                { name: '800 m', code: '800' }
+            ];
+        }
+        // 5. TETRATHLON (Polish Czwórbój U14)
+        else if (nameLower.includes('czwórbój') || nameLower.includes('czworboj')) {
+            subEvents = [
+                { name: '60 m', code: '60', wind: true },
+                { name: 'Skok w dal', code: 'LJ', wind: true },
+                { name: 'Piłeczka palantowa', code: 'BX' },
+                { name: mainEvent.gender === 'F' ? '600 m' : '1000 m', code: mainEvent.gender === 'F' ? '600' : '1000' }
+            ];
+        }
+        // 6. PENTATHLON U16 (Outdoor Młodzicy)
+        else if ((nameLower.includes('pięciobój') || nameLower.includes('piecioboj')) && (mainEvent.ageGroup === 'U16' || nameLower.includes('u16'))) {
+            if (mainEvent.gender === 'F' || mainEvent.gender === 'K') {
+                subEvents = [
+                    { name: '80 m ppł', code: '80H', wind: true },
+                    { name: 'Skok wzwyż', code: 'HJ' },
+                    { name: 'Pchnięcie kulą', code: 'SP' },
+                    { name: 'Skok w dal', code: 'LJ', wind: true },
+                    { name: '600 m', code: '600' }
+                ];
+            } else {
+                subEvents = [
+                    { name: '110 m ppł', code: '110H', wind: true },
+                    { name: 'Skok w dal', code: 'LJ', wind: true },
+                    { name: 'Pchnięcie kulą', code: 'SP' },
+                    { name: 'Skok wzwyż', code: 'HJ' },
+                    { name: '1000 m', code: '1000' }
+                ];
+            }
+        }
+
+        if (subEvents.length === 0) {
+            throw new Error('Could not identify sub-events for this competition type');
+        }
+
+        const results = [];
+        for (const sub of subEvents) {
+            // Identify model
+            let model = 'STANDARD';
+            const code = sub.code.toUpperCase();
+            if (['LJ', 'TJ', 'SP', 'DT', 'JT', 'HT', 'BX'].includes(code)) model = 'FIELD_MULTI';
+            else if (['HJ', 'PV'].includes(code)) model = 'VERTICAL_MULTI';
+            else model = 'STANDARD';
+
+            // Create sub-event
+            const newEvent = await this.prisma.event.create({
+                data: {
+                    meetingId: mainEvent.meetingId,
+                    name: `${sub.name} (${mainEvent.name})`,
+                    code: sub.code,
+                    eventCode: sub.code,
+                    gender: mainEvent.gender,
+                    ageGroup: mainEvent.ageGroup,
+                    stage: 'Multi-Event',
+                    model: model,
+                    requiresWind: sub.wind || false,
+                    startTime: mainEvent.startTime
+                }
+            });
+
+            // Clone entries - we exclude PB/SB as they are for the whole multi-event
+            const entryPromises = mainEvent.entries.map(entry => {
+                const { id, eventId, createdAt, updatedAt, pb, sb, ...entryData } = entry;
+                return this.prisma.entry.create({
+                    data: {
+                        ...entryData as any,
+                        eventId: newEvent.id
+                    }
+                });
+            });
+
+            await Promise.all(entryPromises);
+            results.push(newEvent);
+        }
+
+        return {
+            message: `Successfully split into ${results.length} sub-events`,
+            subEvents: results
+        };
     }
 }

@@ -1,167 +1,306 @@
 'use client';
 
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useParams, useRouter } from 'next/navigation';
 import api from '../../../lib/api';
-import { useParams } from 'next/navigation';
-import { useState } from 'react';
-import { MapPin, Calendar, ChevronRight } from 'lucide-react';
 import PublicResultsView from '../../../components/meetings/PublicResultsView';
-
-interface Event {
-    id: string;
-    name: string;
-    code: string;
-    gender: string;
-    startTime?: string;
-}
+import {
+    Clock,
+    Calendar,
+    Trophy,
+    LayoutGrid,
+    ChevronRight,
+    Filter,
+    ArrowLeft,
+    CalendarDays,
+    MapPin
+} from 'lucide-react';
+import Link from 'next/link';
 
 interface Meeting {
     id: string;
     name: string;
     date: string;
     location: string;
-    events: Event[];
+    organizerLogo?: string;
+    sponsorLogos: string[];
+    events: MeetingEvent[];
+}
+
+interface MeetingEvent {
+    id: string;
+    name: string;
+    code: string;
+    gender: string;
+    startTime?: string;
+    category?: string;
+    ageGroup?: string;
+    model?: string;
+    requiresWind?: boolean;
 }
 
 export default function PublicMeetingResultsPage() {
     const params = useParams();
+    const router = useRouter();
+    const meetingId = params.id as string;
     const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
-    const { data: meeting, isLoading, error } = useQuery<Meeting>({
-        queryKey: ['public-meeting', params.id],
+    const { data: meeting, isLoading } = useQuery<Meeting>({
+        queryKey: ['meeting-live', meetingId],
         queryFn: async () => {
-            const response = await api.get(`/meetings/${params.id}`);
+            const response = await api.get(`/meetings/${meetingId}`);
             return response.data;
         },
-        enabled: !!params.id,
     });
 
-    if (isLoading) return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50">
-            <div className="flex flex-col items-center gap-4">
-                <div className="h-12 w-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-slate-500 font-medium">Przygotowywanie wyników...</span>
-            </div>
-        </div>
-    );
+    const selectedEvent = useMemo(() => {
+        return meeting?.events.find(e => e.id === selectedEventId);
+    }, [meeting, selectedEventId]);
 
-    if (error || !meeting) return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50">
-            <div className="text-center p-8 bg-white rounded-2xl shadow-xl">
-                <h1 className="text-2xl font-bold text-red-500 mb-2">Błąd</h1>
-                <p className="text-slate-600">Nie udało się pobrać danych zawodów.</p>
-            </div>
-        </div>
-    );
+    // Helper to extract age group for display
+    const getEventLabel = (event: MeetingEvent) => {
+        let label = event.code;
 
-    const selectedEventName = meeting.events.find(e => e.id === selectedEventId)?.name;
+        // If ageGroup is defined, use it
+        if (event.ageGroup) {
+            const ageGroupStr = event.ageGroup.startsWith('U') ? event.ageGroup : `U${event.ageGroup}`;
+            label += ` ${ageGroupStr}`;
+        } else {
+            // Fallback: try to extract from name if not in ageGroup but present in string (e.g. "60m U16")
+            const match = event.name.match(/U\d+/i);
+            if (match) {
+                label += ` ${match[0].toUpperCase()}`;
+            }
+        }
+
+        return label;
+    };
+
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+                <div className="flex flex-col items-center">
+                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p className="text-slate-500 font-medium animate-pulse">Inicjalizacja systemu wyników na żywo...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!meeting) return <div>Nie znaleziono mitingu.</div>;
+
+    // Group events by category/gender for top bar
+    const groupedEvents = meeting.events.reduce((acc, event) => {
+        const gender = (event.gender || '').toUpperCase().trim();
+        let cat = 'MIX';
+
+        if (gender === 'K' || gender === 'W' || gender === 'F') cat = 'Kobiety';
+        else if (gender === 'M') cat = 'Mężczyźni';
+        else if (gender === 'MIX' || gender === 'OPEN') cat = 'MIX';
+        else cat = 'MIX';
+
+        if (!acc[cat]) acc[cat] = [];
+        acc[cat].push(event);
+        return acc;
+    }, {} as Record<string, MeetingEvent[]>);
 
     return (
-        <div className="min-h-screen bg-[#f8fafc] pb-20">
-            {/* Hero Header */}
-            <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white pt-6 pb-16 px-6 shadow-xl relative overflow-hidden">
-                <div className="max-w-7xl mx-auto relative z-10">
-                    <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                        <div className="space-y-3">
-                            <span className="bg-blue-400/30 text-blue-100 text-[10px] uppercase font-black tracking-widest px-3 py-1 rounded-full backdrop-blur-md border border-white/10">
-                                Live Competition Results
-                            </span>
-                            <h1 className="text-2xl md:text-4xl font-black tracking-tight leading-none uppercase">
-                                {meeting.name}
-                            </h1>
-                            <div className="flex flex-wrap gap-6 text-blue-100/80 text-sm font-medium">
-                                <span className="flex items-center gap-2">
-                                    <Calendar className="h-4 w-4 text-blue-300" />
-                                    {new Date(meeting.date).toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })}
-                                </span>
-                                <span className="flex items-center gap-2">
-                                    <MapPin className="h-4 w-4 text-blue-300" />
-                                    {meeting.location}
+        <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans selection:bg-blue-100 selection:text-blue-900">
+            {/* TOP HEADER */}
+            <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+                <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="flex items-center justify-between h-16 sm:h-20">
+                        <div className="flex items-center gap-4 sm:gap-6">
+                            <Link href="/" className="p-2 hover:bg-slate-100 rounded-full transition-colors hidden sm:block">
+                                <ArrowLeft className="h-5 w-5 text-slate-500" />
+                            </Link>
+                            <div className="flex items-center gap-3">
+                                {meeting.organizerLogo ? (
+                                    <img
+                                        src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/meetings/uploads/${meeting.organizerLogo}`}
+                                        alt="Logo"
+                                        className="h-10 w-10 sm:h-12 sm:w-12 object-contain"
+                                    />
+                                ) : (
+                                    <div className="h-10 w-10 sm:h-12 sm:w-12 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-xl shadow-lg shadow-blue-200">
+                                        P
+                                    </div>
+                                )}
+                                <div>
+                                    <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight truncate max-w-[200px] sm:max-w-none">
+                                        {meeting.name}
+                                    </h1>
+                                    <div className="flex items-center gap-3 text-xs sm:text-sm text-slate-500 font-medium">
+                                        <span className="flex items-center gap-1">
+                                            <Calendar className="h-3.5 w-3.5" />
+                                            {new Date(meeting.date).toLocaleDateString('pl-PL')}
+                                        </span>
+                                        <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+                                        <span className="flex items-center gap-1 ring-1 ring-slate-200 bg-slate-50 px-1.5 py-0.5 rounded">
+                                            {meeting.location}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* LIVE INDICATOR */}
+                        <div className="flex items-center gap-3">
+                            <div className="hidden md:flex items-center bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 gap-4">
+                                <div className="flex items-center gap-1.5 border-r border-slate-200 pr-4">
+                                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">SYSTEM LIVE</span>
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">
+                                    {new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                             </div>
                         </div>
                     </div>
                 </div>
-                {/* Decorative Elements */}
-                <div className="absolute top-0 right-0 -mt-20 -mr-20 h-64 w-64 bg-white/5 rounded-full blur-3xl"></div>
-                <div className="absolute bottom-0 left-0 -mb-20 -ml-20 h-64 w-64 bg-blue-400/10 rounded-full blur-3xl"></div>
-            </div>
 
-            <div className="max-w-7xl mx-auto px-6 -mt-8 group">
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                    {/* Event List Sidebar */}
-                    <div className="lg:col-span-1 space-y-4">
-                        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
-                            <div className="p-5 border-b border-slate-50 bg-slate-50/50">
-                                <h3 className="font-bold text-slate-800 uppercase text-xs tracking-widest flex items-center gap-2">
-                                    <ChevronRight className="h-4 w-4 text-blue-500" />
-                                    Konkurencje
+                {/* QUICK EVENT SELECTION (TOP BAR) - STACKED ROWS */}
+                <div className="border-t border-slate-100 bg-white shadow-sm hidden sm:block">
+                    <div className="max-w-[1600px] mx-auto px-4 py-1 flex flex-col divide-y divide-slate-50">
+                        {['Kobiety', 'Mężczyźni', 'MIX'].filter(g => groupedEvents[g]).map(gender => (
+                            <div key={gender} className="flex items-center gap-4 py-1.5 overflow-x-auto scroller-hide">
+                                <div className="shrink-0 w-24">
+                                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md block text-center ${gender === 'Kobiety' ? 'bg-pink-100 text-pink-700 border border-pink-200' :
+                                        gender === 'Mężczyźni' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                                            'bg-purple-100 text-purple-700 border border-purple-200'
+                                        }`}>
+                                        {gender === 'Kobiety' ? 'KOBIETY' : gender === 'Mężczyźni' ? 'MĘŻCZYŹNI' : 'MIX / OPEN'}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    {groupedEvents[gender].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || '')).map(event => (
+                                        <button
+                                            key={event.id}
+                                            onClick={() => setSelectedEventId(event.id)}
+                                            className={`px-3 py-1 rounded text-[11px] font-bold transition-all duration-200 whitespace-nowrap border ${selectedEventId === event.id
+                                                ? 'bg-blue-600 text-white border-blue-700 shadow-sm'
+                                                : 'text-slate-600 border-transparent hover:border-slate-200 hover:bg-slate-50'
+                                                }`}
+                                        >
+                                            {getEventLabel(event)}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </header>
+
+            <main className="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8">
+                <div className="flex flex-col lg:flex-row gap-8">
+
+                    {/* SIDEBAR: FULL SCHEDULE */}
+                    <aside className="w-full lg:w-80 flex-shrink-0 group">
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden sticky top-48">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
+                                <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-tight">
+                                    <Clock className="h-4 w-4 text-blue-600" />
+                                    Harmonogram
                                 </h3>
+                                <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded">LIVE</span>
                             </div>
-                            <div className="divide-y divide-slate-50 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                                {meeting.events.map((event) => (
-                                    <button
-                                        key={event.id}
-                                        onClick={() => setSelectedEventId(event.id)}
-                                        className={`w-full p-4 text-left transition-all relative overflow-hidden group ${selectedEventId === event.id
-                                            ? 'bg-blue-50/50'
-                                            : 'hover:bg-slate-50'
-                                            }`}
-                                    >
-                                        {selectedEventId === event.id && (
-                                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600"></div>
-                                        )}
-                                        <div className="flex flex-col gap-1">
-                                            <span className={`text-sm font-bold tracking-tight uppercase ${selectedEventId === event.id ? 'text-blue-700' : 'text-slate-700'
-                                                }`}>
-                                                {event.name}
-                                            </span>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                                                    {event.code}
-                                                </span>
-                                                <span className="text-slate-300">•</span>
-                                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                                                    {event.gender === 'M' ? 'Mężczyźni' : event.gender === 'K' ? 'Kobiety' : 'Open'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </button>
-                                ))}
+                            <div className="max-h-[calc(100vh-320px)] overflow-y-auto overflow-x-hidden scroller font-medium">
+                                {meeting.events.length === 0 ? (
+                                    <div className="p-8 text-center text-slate-400 text-sm italic">Brak zaplanowanych konkurencji</div>
+                                ) : (
+                                    <div className="divide-y divide-slate-50">
+                                        {[...meeting.events].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || '')).map((event) => {
+                                            const isActive = selectedEventId === event.id;
+                                            return (
+                                                <button
+                                                    key={event.id}
+                                                    onClick={() => setSelectedEventId(event.id)}
+                                                    className={`w-full text-left p-4 transition-all duration-200 relative group flex items-start gap-4 ${isActive
+                                                        ? 'bg-blue-50/50'
+                                                        : 'hover:bg-slate-50'
+                                                        }`}
+                                                >
+                                                    {isActive && (
+                                                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600 rounded-r"></div>
+                                                    )}
+                                                    <span className={`text-[11px] font-mono font-bold mt-0.5 shrink-0 ${isActive ? 'text-blue-600' : 'text-slate-400'
+                                                        }`}>
+                                                        {event.startTime ? new Date(event.startTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                                                    </span>
+                                                    <div className="flex-1">
+                                                        <p className={`text-[13px] font-bold leading-none ${isActive ? 'text-blue-900 font-black' : 'text-slate-700'
+                                                            }`}>
+                                                            {event.name}
+                                                        </p>
+                                                        <div className="flex items-center gap-2 mt-1.5">
+                                                            <span className={`text-[9px] font-black uppercase px-1 rounded ${event.gender === 'K' ? 'bg-pink-50 text-pink-600' :
+                                                                event.gender === 'M' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
+                                                                }`}>
+                                                                {event.gender === 'K' ? 'K' : event.gender === 'M' ? 'M' : 'MIX'}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-bold bg-slate-50 px-1 rounded">
+                                                                {event.code}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         </div>
+                    </aside>
 
-                        {/* Summary Info */}
-                        <div className="bg-indigo-900 text-indigo-100 p-6 rounded-2xl shadow-lg relative overflow-hidden">
-                            <h4 className="font-bold text-sm mb-2 relative z-10">O systemie</h4>
-                            <p className="text-xs text-indigo-200/80 leading-relaxed relative z-10">
-                                Wyniki są pobierane w czasie rzeczywistym bezpośrednio z aparatury FinishLynx.
-                                Odświeżanie następuje automatycznie.
-                            </p>
-                            <div className="absolute -bottom-8 -right-8 h-24 w-24 bg-white/5 rounded-full"></div>
-                        </div>
-                    </div>
-
-                    {/* Results Table Area */}
-                    <div className="lg:col-span-3">
-                        <PublicResultsView eventId={selectedEventId} eventName={selectedEventName} />
+                    {/* MAIN CONTENT: RESULTS TABLE */}
+                    <div className="flex-1 min-w-0">
+                        {!selectedEventId ? (
+                            <div className="h-[600px] flex flex-col items-center justify-center bg-white rounded-3xl border border-slate-200 border-dashed animate-in fade-in duration-700">
+                                <div className="relative mb-8">
+                                    <div className="absolute inset-0 bg-blue-100 rounded-full blur-3xl opacity-50 scale-150 animate-pulse"></div>
+                                    <LayoutGrid className="h-16 w-16 text-blue-600/20 relative" />
+                                </div>
+                                <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">Platforma Wyników na Żywo</h2>
+                                <p className="text-slate-500 max-w-sm text-center text-sm leading-relaxed">
+                                    Wybierz konkurencję z górnego paska lub harmonogramu, aby śledzić rywalizację w czasie rzeczywistym.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="animate-in slide-in-from-bottom-2 duration-500 transition-all">
+                                <PublicResultsView
+                                    eventId={selectedEventId}
+                                    eventName={selectedEvent?.name}
+                                    model={selectedEvent?.model}
+                                    requiresWind={selectedEvent?.requiresWind}
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
-            </div>
+            </main>
 
             <style jsx global>{`
-                .custom-scrollbar::-webkit-scrollbar {
+                .scroller::-webkit-scrollbar {
                     width: 4px;
                 }
-                .custom-scrollbar::-webkit-scrollbar-track {
+                .scroller::-webkit-scrollbar-track {
                     background: transparent;
                 }
-                .custom-scrollbar::-webkit-scrollbar-thumb {
+                .scroller::-webkit-scrollbar-thumb {
                     background: #e2e8f0;
-                    border-radius: 10px;
+                    border-radius: 20px;
                 }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                .scroller::-webkit-scrollbar-thumb:hover {
                     background: #cbd5e1;
+                }
+                .scroller-hide::-webkit-scrollbar {
+                    display: none;
+                }
+                .scroller-hide {
+                    -ms-overflow-style: none;
+                    scrollbar-width: none;
                 }
             `}</style>
         </div>

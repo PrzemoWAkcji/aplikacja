@@ -59,4 +59,11 @@ export class EventsController {
     generateStartList(@Param('id') id: string, @Body() body: GenerateStartListDto) {
         return this.eventsService.generateStartList(id, body);
     }
+
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.ORGANIZER, Role.ADMIN)
+    @Post(':id/split')
+    splitMultiEvent(@Param('id') id: string) {
+        return this.eventsService.splitMultiEvent(id);
+    }
 }
