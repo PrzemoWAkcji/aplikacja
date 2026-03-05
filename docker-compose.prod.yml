@@ -38,13 +38,14 @@ services:
       JWT_SECRET: super-secret-key
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      FINISHLYNX_EXPORT_DIR: /app/lynx_data
     ports:
       - "3000:3000"
     depends_on:
       - postgres
       - redis
     volumes:
-      - ./backend/lynx_data:/app/lynx_data
+      - C:/Zawody:/app/lynx_data
     networks:
       - aplikacja-network
     restart: always

@@ -24,7 +24,8 @@ import {
     CalendarDays,
     ArrowLeft,
     LogOut,
-    LayoutDashboard
+    LayoutDashboard,
+    ExternalLink
 } from 'lucide-react';
 
 interface Event {
@@ -33,6 +34,7 @@ interface Event {
     code: string;
     gender: string;
     startTime?: string;
+    completedTime?: string;
     ageGroup?: string;
     stage?: string;
     requiresWind?: boolean;
@@ -50,6 +52,7 @@ interface Meeting {
     season: 'STADIUM' | 'INDOOR';
     type: string;
     status: 'DRAFT' | 'SCHEDULED' | 'OPEN' | 'FINISHED' | 'CANCELLED';
+    domtelOnlineUrl?: string;
     events: Event[];
 }
 
@@ -122,14 +125,8 @@ export default function MeetingDetailsPage() {
             {/* VERTICAL SIDEBAR */}
             <aside className="w-64 bg-white border-r border-slate-200 sticky top-0 h-screen flex flex-col z-40 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0">
                 {/* BRANDING */}
-                <div className="p-5 border-b border-slate-50 flex items-center gap-3">
-                    <div className="h-9 w-9 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200 shrink-0">
-                        <Trophy className="h-5 w-5 text-white" />
-                    </div>
-                    <div className="flex flex-col">
-                        <span className="font-black text-base tracking-tighter text-slate-800 leading-none">ATHLETICS<span className="text-blue-600">PRO</span></span>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Management</span>
-                    </div>
+                <div className="p-5 border-b border-slate-50">
+                    <img src="/it-timing-logo.png" alt="IT TIMING" className="h-10 w-auto object-contain" />
                 </div>
 
                 {/* NAVIGATION */}
@@ -233,6 +230,14 @@ export default function MeetingDetailsPage() {
 
                         <div className="flex items-center gap-2">
                             {/* Registration button removed */}
+                            {meeting.domtelOnlineUrl && (
+                                <a href={meeting.domtelOnlineUrl} target="_blank" rel="noreferrer">
+                                    <Button variant="outline" size="sm" className="bg-white border-slate-200 shadow-sm hover:border-sky-200 hover:bg-sky-50 text-slate-700 h-9 px-3 text-xs font-bold transition-all">
+                                        <ExternalLink className="h-3.5 w-3.5 mr-2 text-sky-600" />
+                                        Domtel Online
+                                    </Button>
+                                </a>
+                            )}
                             <Link href={`/results/${meeting.id}`} target="_blank">
                                 <Button variant="outline" size="sm" className="bg-white border-slate-200 shadow-sm hover:border-amber-200 hover:bg-amber-50 text-slate-700 h-9 px-3 text-xs font-bold transition-all">
                                     <Trophy className="h-3.5 w-3.5 mr-2 text-amber-500" />

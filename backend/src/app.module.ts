@@ -42,8 +42,12 @@ export class AppModule {
     consumer
       .apply((req: any, res: any, next: any) => {
         if (req.url.includes('/auth/profile')) {
-          console.log(`[DEBUG] Incoming /auth/profile request. Auth header: ${req.headers.authorization}`);
-          console.log(`[DEBUG] Current JWT_SECRET (first 3 chars): ${process.env.JWT_SECRET?.substring(0, 3)}`);
+          console.log(
+            `[DEBUG] Incoming /auth/profile request. Auth header: ${req.headers.authorization}`,
+          );
+          console.log(
+            `[DEBUG] Current JWT_SECRET (first 3 chars): ${process.env.JWT_SECRET?.substring(0, 3)}`,
+          );
         }
         next();
       })

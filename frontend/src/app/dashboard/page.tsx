@@ -1,8 +1,14 @@
-'use client';
+﻿'use client';
 
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../../components/ui/card';
+import {
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+    CardFooter,
+} from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import Link from 'next/link';
 import { Plus, Calendar, MapPin } from 'lucide-react';
@@ -27,7 +33,6 @@ export default function DashboardPage() {
     const router = useRouter();
     const token = useAuthStore((state) => state.token);
     const _hasHydrated = useAuthStore((state) => state._hasHydrated);
-
     useEffect(() => {
         if (_hasHydrated && !token) {
             router.push('/login');
@@ -45,11 +50,16 @@ export default function DashboardPage() {
 
     const getStatusLabel = (status: string) => {
         switch (status) {
-            case 'DRAFT': return 'Robocze';
-            case 'SCHEDULED': return 'Zaplanowane';
-            case 'OPEN': return 'Live';
-            case 'FINISHED': return 'Zakończone';
-            default: return status;
+            case 'DRAFT':
+                return 'Robocze';
+            case 'SCHEDULED':
+                return 'Zaplanowane';
+            case 'OPEN':
+                return 'Live';
+            case 'FINISHED':
+                return 'Zakończone';
+            default:
+                return status;
         }
     };
 
@@ -60,6 +70,7 @@ export default function DashboardPage() {
             <div className="max-w-7xl mx-auto">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
                     <div className="space-y-1">
+                        <img src="/it-timing-logo.png" alt="IT TIMING" className="h-10 w-auto object-contain mb-3" />
                         <h1 className="text-4xl font-black text-slate-900 tracking-tight">Twoje Zawody</h1>
                         <p className="text-slate-500 font-medium">Zarządzaj wydarzeniami i systemem pomiaru czasu</p>
                     </div>
@@ -104,16 +115,24 @@ export default function DashboardPage() {
                         <Card key={meeting.id} className="group border-0 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] transition-all duration-500 rounded-3xl overflow-hidden bg-white">
                             <CardHeader className="pb-4">
                                 <div className="flex justify-between items-start mb-2">
-                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border ${meeting.season === 'STADIUM' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-blue-50 text-blue-600 border-blue-100'
-                                        }`}>
+                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border ${
+                                        meeting.season === 'STADIUM'
+                                            ? 'bg-orange-50 text-orange-600 border-orange-100'
+                                            : 'bg-blue-50 text-blue-600 border-blue-100'
+                                    }`}>
                                         {meeting.season === 'STADIUM' ? 'Stadion' : 'Hala'}
                                     </span>
-                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${meeting.status === 'OPEN' ? 'bg-green-100 text-green-700 animate-pulse' : 'bg-slate-100 text-slate-500'
-                                        }`}>
+                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                                        meeting.status === 'OPEN'
+                                            ? 'bg-green-100 text-green-700 animate-pulse'
+                                            : 'bg-slate-100 text-slate-500'
+                                    }`}>
                                         {getStatusLabel(meeting.status)}
                                     </span>
                                 </div>
-                                <CardTitle className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors leading-tight">{meeting.name}</CardTitle>
+                                <CardTitle className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors leading-tight">
+                                    {meeting.name}
+                                </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4 pb-0">
                                 <div className="space-y-2">
@@ -122,8 +141,16 @@ export default function DashboardPage() {
                                             <Calendar className="h-4 w-4" />
                                         </div>
                                         <span>
-                                            {new Date(meeting.date).toLocaleDateString('pl-PL', { day: 'numeric', month: 'long' })}
-                                            {meeting.endDate && meeting.endDate !== meeting.date && ` - ${new Date(meeting.endDate).toLocaleDateString('pl-PL', { day: 'numeric', month: 'long' })}`}
+                                            {new Date(meeting.date).toLocaleDateString('pl-PL', {
+                                                day: 'numeric',
+                                                month: 'long',
+                                            })}
+                                            {meeting.endDate &&
+                                                meeting.endDate !== meeting.date &&
+                                                ` - ${new Date(meeting.endDate).toLocaleDateString('pl-PL', {
+                                                    day: 'numeric',
+                                                    month: 'long',
+                                                })}`}
                                         </span>
                                     </div>
                                     <div className="flex items-center text-slate-500 font-bold text-xs gap-3">
@@ -135,11 +162,13 @@ export default function DashboardPage() {
                                 </div>
                             </CardContent>
                             <CardFooter className="pt-6">
-                                <Link href={`/meetings/${meeting.id}`} className="w-full">
-                                    <Button className="w-full h-11 bg-slate-50 hover:bg-blue-600 hover:text-white text-slate-600 border-0 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all">
-                                        Zarządzaj Zawodami
-                                    </Button>
-                                </Link>
+                                <div className="w-full space-y-2">
+                                    <Link href={`/meetings/${meeting.id}`} className="w-full block">
+                                        <Button className="w-full h-11 bg-slate-50 hover:bg-blue-600 hover:text-white text-slate-600 border-0 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all">
+                                            Zarządzaj Zawodami
+                                        </Button>
+                                    </Link>
+                                </div>
                             </CardFooter>
                         </Card>
                     ))}
@@ -150,7 +179,9 @@ export default function DashboardPage() {
                                 <Plus className="h-10 w-10 text-slate-200" />
                             </div>
                             <h3 className="text-xl font-black text-slate-900 mb-2">Brak aktywnych zawodów</h3>
-                            <p className="text-slate-400 text-sm font-medium max-w-xs mx-auto mb-8">Rozpocznij tworząc swoje pierwsze wydarzenie sportowe w systemie.</p>
+                            <p className="text-slate-400 text-sm font-medium max-w-xs mx-auto mb-8">
+                                Rozpocznij tworząc swoje pierwsze wydarzenie sportowe w systemie.
+                            </p>
                             <Link href="/meetings/create">
                                 <Button className="bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-200 h-12 px-10 rounded-2xl font-black uppercase text-xs tracking-widest transition-all">
                                     Utwórz pierwsze zawody

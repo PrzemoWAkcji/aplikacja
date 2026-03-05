@@ -1,33 +1,17 @@
-'use client';
+﻿'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Users, FileText, ClipboardList, ArrowUpDown, Trash, LayoutGrid, Zap, RotateCcw, Printer, CloudDownload, Search, ExternalLink } from 'lucide-react';
+import { X, Users, FileText, ClipboardList, ArrowUpDown, Trash, LayoutGrid, Zap, RotateCcw, Printer, CloudDownload, Search, ExternalLink, Settings, Calendar } from 'lucide-react';
 import api from '../../lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { TimePicker } from '../ui/time-picker';
 import { printSingle } from '../../lib/printUtils';
 import SeedingDnD from './SeedingDnD';
-
-// Helper to identify field events
-const isFieldEvent = (name: string = '') => {
-    const technicalKeywords = [
-        'kul', 'dysk', 'młot', 'oszczep', 'dal', 'trójskok', 'wzwyż', 'tycz', 'piłecz',
-        'lj', 'tj', 'sp', 'dt', 'jt', 'ht', 'hj', 'pv'
-    ];
-    const lowerName = (name || '').toLowerCase();
-    return technicalKeywords.some(keyword => lowerName.includes(keyword));
-};
-
-const isMultiEvent = (name: string = '') => {
-    const keywords = ['Pięciobój', 'Siedmiobój', 'Dziesięciobój', 'Pentathlon', 'Heptathlon', 'Decathlon', 'bój'];
-    return keywords.some(keyword => name.includes(keyword));
-};
-
-const isRelayEvent = (code: string = '') => {
-    return code?.toLowerCase().includes('4x'); // e.g. 4x100, 4x400
-};
+import RelaySquadEditor from './RelaySquadEditor';
+import { isFieldEvent, isMultiEvent, isRelayEvent, isVerticalEvent, eventRequiresWind } from '../../lib/utils';
 
 interface Entry {
     id: string;
@@ -78,6 +62,27 @@ interface EntriesTableProps {
     eventStage?: string;
 }
 
+const VERTICAL_HEIGHT_SLOTS = 24;
+const DEFAULT_FINISHLYNX_EXPORT_PATH = '\\\\DESKTOP-O1IFA1V\\Zawody';
+const getFinishLynxExportPathStorageKey = (meetingId: string) =>
+    `finishlynx-export-path:${meetingId}`;
+
+const parseRelaySquadMembers = (relaySquad?: string | any[]): RelayMember[] => {
+    if (!relaySquad) return [];
+    try {
+        if (Array.isArray(relaySquad)) {
+            return relaySquad.filter((member) => !!member);
+        }
+        const parsed = JSON.parse(relaySquad);
+        if (Array.isArray(parsed)) {
+            return parsed.filter((member) => !!member);
+        }
+    } catch {
+        return [];
+    }
+    return [];
+};
+
 // Helper for PZLA links
 const getPzlaUrl = (entry: any, meetingSeason?: string) => {
     const r = meetingSeason === 'INDOOR' ? 2 : 1;
@@ -94,10 +99,76 @@ const getPzlaUrl = (entry: any, meetingSeason?: string) => {
     return `https://statystyka.pzla.pl/baza/index.php?file=Szukaj&zawodnik=${encodeURIComponent(lastName)}&zawodnik_imie=${encodeURIComponent(firstName)}`;
 };
 
+const sanitizeHeightInput = (value: string): string => {
+    const cleaned = value.replace(/[^0-9.,]/g, '').replace(/,/g, '.');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot === -1) return cleaned;
+    return `${cleaned.slice(0, firstDot + 1)}${cleaned.slice(firstDot + 1).replace(/\./g, '')}`;
+};
+
+const normalizeHeightToken = (value: string): string => {
+    const compact = sanitizeHeightInput(value).trim();
+    if (!compact || compact === '.') return '';
+    // Common coach/judge shorthand: 380 -> 3.80
+    if (/^\d{3}$/.test(compact)) return `${compact[0]}.${compact.slice(1)}`;
+    return compact;
+};
+
+const parseHeightsPlan = (raw?: string | null): string[] => {
+    if (!raw || !raw.trim()) return [];
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return parsed
+                .map((h) => normalizeHeightToken(String(h)))
+                .filter((h) => h.length > 0);
+        }
+    } catch {
+        // fallback below for legacy CSV format
+    }
+    return raw
+        .split(/[,;\s]+/)
+        .map((h) => normalizeHeightToken(h))
+        .filter((h) => h.length > 0);
+};
+
+const heightsToInputValue = (raw?: string | null): string => parseHeightsPlan(raw).join(', ');
+
+const createVerticalHeightSlots = (raw?: string | null): string[] => {
+    const slots = Array.from({ length: VERTICAL_HEIGHT_SLOTS }, () => '');
+    parseHeightsPlan(raw)
+        .slice(0, VERTICAL_HEIGHT_SLOTS)
+        .forEach((h, idx) => {
+            slots[idx] = h;
+        });
+    return slots;
+};
+
+const serializeVerticalHeightSlots = (slots: string[]): string | null => {
+    const values = slots
+        .map((h) => normalizeHeightToken(h))
+        .filter((h) => h.length > 0);
+    return values.length > 0 ? JSON.stringify(values) : null;
+};
+
+const serializeHeightsPlan = (rawInput?: string | null): string | null => {
+    const values = parseHeightsPlan(rawInput);
+    return values.length > 0 ? JSON.stringify(values) : null;
+};
+
 export default function EntriesTable({ meeting, selectedEventId, event, eventStage }: EntriesTableProps) {
     const eventName = event?.name || '';
     const queryClient = useQueryClient();
     const [isSeedingMode, setIsSeedingMode] = useState(false);
+    const [isModelModalOpen, setIsModelModalOpen] = useState(false);
+    const [eventModel, setEventModel] = useState<any>(null);
+    const [verticalHeightSlots, setVerticalHeightSlots] = useState<string[]>(
+        Array.from({ length: VERTICAL_HEIGHT_SLOTS }, () => ''),
+    );
+    const [finishLynxExportPath, setFinishLynxExportPath] = useState(
+        DEFAULT_FINISHLYNX_EXPORT_PATH,
+    );
 
     const { data: entries, isLoading } = useQuery<Entry[]>({
         queryKey: ['entries', selectedEventId],
@@ -114,6 +185,16 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['entries', selectedEventId] });
+        }
+    });
+
+    const updateEventMutation = useMutation({
+        mutationFn: async (data: any) => {
+            return api.patch(`/events/${selectedEventId}`, data);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['meeting', meeting.id] });
+            setIsModelModalOpen(false);
         }
     });
 
@@ -138,6 +219,39 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
     const isField = isFieldEvent(eventName);
     const splitNeeded = isMultiEvent(eventName) && eventStage !== 'Multi-Event';
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const savedPath = window.localStorage.getItem(
+            getFinishLynxExportPathStorageKey(meeting.id),
+        );
+        if (savedPath && savedPath.trim()) {
+            setFinishLynxExportPath(savedPath);
+        }
+    }, [meeting.id]);
+
+    const generateFinishLynxMutation = useMutation({
+        mutationFn: async () => {
+            const exportPath = finishLynxExportPath.trim();
+            return api.post(`/meetings/${meeting.id}/finishlynx-generate`, {
+                exportPath,
+            });
+        },
+        onSuccess: (response) => {
+            const exportDir = response.data?.exportDir || '(brak katalogu)';
+            const evtPath = response.data?.evtPath || '(brak ścieżki .evt)';
+            const schPath = response.data?.schPath || '(brak ścieżki .sch)';
+            const savedAt = response.data?.savedAt
+                ? new Date(response.data.savedAt).toLocaleString('pl-PL')
+                : '';
+            alert(
+                `Wygenerowano pliki FinishLynx:\nKatalog: ${exportDir}\n${evtPath}\n${schPath}${savedAt ? `\nZapisano: ${savedAt}` : ''}`,
+            );
+        },
+        onError: () => {
+            alert('Błąd podczas generowania plików FinishLynx.');
+        },
+    });
+
     // Group entries by Heat
     const groupedEntries = (entries || []).reduce((acc, entry) => {
         const heat = entry.heat || 0; // 0 for no heat
@@ -152,6 +266,12 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
         if (b === 0) return -1;
         return a - b;
     });
+    const heatDisplayMap = sortedHeats.reduce((acc, heat, index) => {
+        if (heat > 0) {
+            acc[heat] = index + 1;
+        }
+        return acc;
+    }, {} as Record<number, number>);
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isNameFocused, setIsNameFocused] = useState(false);
@@ -270,27 +390,72 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
     const [targetEntryId, setTargetEntryId] = useState<string | null>(null); // null = new entry form
     const [isSearchingPzla, setIsSearchingPzla] = useState(false);
 
-    const normalizeEventName = (name: string) => {
-        let n = name
-            .replace(/Kobiet/gi, '')
-            .replace(/Mężczyzn/gi, '')
-            .replace(/Women/gi, '')
-            .replace(/Men/gi, '')
-            .replace(/U\d+/gi, '')
-            .replace(/Halowy/gi, '')
-            // Usuwamy nazwy wielobojów TYLKO jeśli są w nawiasach, np. "Kula (Siedmiobój)"
-            .replace(/\((Siedmiobój|Pięciobój|Dziesięciobój|Pentathlon|Heptathlon|Decathlon)[^\)]*\)/gi, '')
+    const repairMojibake = (value: string): string => {
+        return value
+            .replace(/Ä…/g, 'ą')
+            .replace(/Ä‡/g, 'ć')
+            .replace(/Ä™/g, 'ę')
+            .replace(/Ĺ‚/g, 'ł')
+            .replace(/Ĺ„/g, 'ń')
+            .replace(/Ăł/g, 'ó')
+            .replace(/Ĺ›/g, 'ś')
+            .replace(/Ĺş/g, 'ź')
+            .replace(/Ĺ¼/g, 'ż')
+            .replace(/Ä„/g, 'Ą')
+            .replace(/Ä†/g, 'Ć')
+            .replace(/Ä˜/g, 'Ę')
+            .replace(/Ĺ/g, 'Ł')
+            .replace(/Ĺ/g, 'Ń')
+            .replace(/Ă“/g, 'Ó')
+            .replace(/Ĺš/g, 'Ś')
+            .replace(/Ĺ¹/g, 'Ź')
+            .replace(/Ĺ»/g, 'Ż');
+    };
+
+    const normalizeForMatch = (value: string): string => {
+        const normalized = repairMojibake(value)
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9 ]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        return normalized
+            .replace(/\b5\s*boj\b/g, 'piecioboj')
+            .replace(/\b7\s*boj\b/g, 'siedmioboj')
+            .replace(/\b10\s*boj\b/g, 'dziesiecioboj')
+            .replace(/\bpentathlon\b/g, 'piecioboj')
+            .replace(/\bheptathlon\b/g, 'siedmioboj')
+            .replace(/\bdecathlon\b/g, 'dziesiecioboj')
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
+
+    const normalizeEventName = (name: string): string => {
+        let n = repairMojibake(name)
+            .replace(/kobiet|kobiety/gi, '')
+            .replace(/m[eę][żz]czyzn|m[eę][żz]czyzni/gi, '')
+            .replace(/women/gi, '')
+            .replace(/men/gi, '')
+            .replace(/u\d+/gi, '')
+            .replace(/halowy|halowe/gi, '')
+            .replace(/\((siedmioboj|piecioboj|dziesiecioboj|pentathlon|heptathlon|decathlon)[^)]*\)/gi, '')
             .replace(/\((5kg|6kg|7.26kg|4kg|3kg|2kg|0.75kg|1kg|1.5kg|1.75kg)\)/gi, '')
             .replace(/\([\d\w., ]+\)/gi, '')
             .trim();
 
-        if (n.includes('ppł')) n = n.replace('ppł', ' pł');
+        n = n.replace(/pp[lł]/gi, ' pl');
         n = n.replace(/(\d+)m/gi, '$1 m');
         n = n.replace(/\s+/g, ' ').trim();
 
         return n;
-    }
+    };
 
+    const isMultiEventName = (name: string): boolean => {
+        const normalized = normalizeForMatch(name);
+        return /siedmiob|dziesieciob|pieciob|pentathlon|heptathlon|decathlon/.test(normalized);
+    };
     const handlePzlaSearch = async (name: string, year?: number, entryId: string | null = null) => {
         if (!name || name.length < 3) return alert('Wpisz co najmniej 3 znaki nazwiska/imienia.');
 
@@ -323,11 +488,27 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
 
     const applyPzlaData = async (candidate: PzlaCandidate, entryId: string | null, silent = false): Promise<boolean> => {
         try {
-            const res = await api.get(`/pzla/athlete/${candidate.pzlaId}/results`);
+            const seasonParam = meeting.season === 'INDOOR' ? 'INDOOR' : 'STADIUM';
+            const res = await api.get(`/pzla/athlete/${candidate.pzlaId}/results?season=${seasonParam}`);
             const { pb: pbs, sb: sbs } = res.data;
 
             const currentEventName = normalizeEventName(eventName || '');
             if (!currentEventName || currentEventName.length < 2) return false;
+            const isLikelyMultiEventScore = (rawValue: string): boolean => {
+                const value = repairMojibake(rawValue || '')
+                    .toLowerCase()
+                    .split('/')[0]
+                    .replace(/\([^)]*\)/g, '')
+                    .replace(/(pkt|pts|pt)\.?/g, '')
+                    .replace(',', '.')
+                    .replace(/\s+/g, '')
+                    .trim();
+
+                if (!value || value.includes(':')) return false;
+                if (!/^\d+(\.\d+)?$/.test(value)) return false;
+                const points = parseFloat(value);
+                return Number.isFinite(points) && points >= 1000;
+            };
 
             // Try to find exact or partial match
             // Creating a simple matcher
@@ -336,82 +517,101 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                 if (resultsObj[currentEventName]) return resultsObj[currentEventName];
 
                 const keys = Object.keys(resultsObj);
-                const currLower = currentEventName.toLowerCase();
+                const stripGenderTokens = (value: string) =>
+                    value
+                        .replace(/\b(kobiet|kobiety|women|mezczyzn|mezczyzni|men)\b/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+
+                const currNormRaw = normalizeForMatch(currentEventName);
+                const currNorm = stripGenderTokens(currNormRaw);
 
                 // 2. Normalized EXACT match (e.g. "Kula (6)" -> "Pchnięcie kulą")
                 const foundKey = keys.find(k => {
-                    const normK = normalizeEventName(k).toLowerCase();
-                    return normK === currLower && normK.length > 1;
+                    const normK = normalizeForMatch(normalizeEventName(k));
+                    return (
+                        normK.length > 1 &&
+                        (normK === currNorm || normK === currNormRaw)
+                    );
                 });
                 if (foundKey) return resultsObj[foundKey];
 
                 // 3. Special handling for multi-events
-                const isMultiEvent = /siedmiob|dziesięciob|pięciob|pentathlon|heptathlon|decathlon/i.test(currentEventName);
+                const isMultiEvent = isMultiEventName(currentEventName);
 
                 if (isMultiEvent) {
                     const multiKey = keys.find(k => {
-                        const kl = k.toLowerCase();
-                        const nk = normalizeEventName(k).toLowerCase();
+                        const kl = normalizeForMatch(k);
+                        const nk = normalizeForMatch(normalizeEventName(k));
                         // Musi zawierać nazwę wieloboju
-                        const matchesName = (kl.includes(currLower) || nk.includes(currLower));
+                        const matchesName =
+                            kl.includes(currNorm) ||
+                            nk.includes(currNorm) ||
+                            currNorm.includes(kl) ||
+                            currNorm.includes(nk);
                         if (!matchesName) return false;
 
                         // Ale NIE może zawierać nazw konkretnych konkurencji cząstkowych
-                        const hasSubDiscipline = kl.includes('kula') || kl.includes('tyczka') ||
-                            kl.includes('wzwyż') || kl.includes('dal') ||
-                            kl.includes('płot') || kl.includes('oszczep') ||
-                            kl.includes('dysk') || kl.includes('młot') ||
-                            kl.includes('60 m') || kl.includes('100 m') ||
-                            kl.includes('400 m') || kl.includes('800 m') ||
-                            kl.includes('1000 m') || kl.includes('1500 m');
+                        const hasSubDiscipline = nk.includes('kula') || nk.includes('tyczka') ||
+                            nk.includes('wzwyz') || nk.includes('dal') ||
+                            nk.includes('plot') || nk.includes('oszczep') ||
+                            nk.includes('dysk') || nk.includes('mlot') ||
+                            nk.includes('60 m') || nk.includes('100 m') ||
+                            nk.includes('400 m') || nk.includes('800 m') ||
+                            nk.includes('1000 m') || nk.includes('1500 m');
 
                         if (hasSubDiscipline) return false;
 
-                        // Wynik wieloboju powinien być dużą liczbą (punktami), a nie np czasem 7.38
-                        // Sprawdzamy wartość dla tego klucza
+                        // Wynik wieloboju powinien wyglądać jak punkty, nie czas/odległość.
                         const val = resultsObj[k] || '';
-                        if (val.includes('.') || val.includes(':')) return false; // Czasy i wysokości mają kropki/dwukropki
+                        if (!isLikelyMultiEventScore(val)) return false;
 
                         return true;
                     });
                     if (multiKey) return resultsObj[multiKey];
-                    return '';
                 }
 
                 // 4. Loose match for standard disciplines
                 const looseKey = keys.find(k => {
-                    const normK = normalizeEventName(k).toLowerCase();
+                    const normK = normalizeForMatch(normalizeEventName(k));
                     if (!normK || normK.length < 2) return false;
-                    return normK.includes(currLower) || currLower.includes(normK);
+                    return normK.includes(currNorm) || currNorm.includes(normK);
                 });
                 return looseKey ? resultsObj[looseKey] : '';
             };
 
             const foundPB = findResult(pbs);
             const foundSB = findResult(sbs);
+            const hasPB = !!foundPB && foundPB.trim().length > 0;
+            const hasSB = !!foundSB && foundSB.trim().length > 0;
 
             if (entryId) {
-                // Zawsze aktualizujemy, aby wyczyścić ewentualne śmieci z poprzednich prób
-                // Zapisujemy również pzlaId w polu tilastopajaId (jako kontener na ID statystyk)
-                await updateEntryMutation.mutateAsync({
+                if (!hasPB && !hasSB) {
+                    if (!silent) alert(`Brak dopasowania PB/SB dla ${candidate.name} w tej konkurencji.`);
+                    return false;
+                }
+
+                const payload: any = {
                     id: entryId,
-                    pb: foundPB,
-                    sb: foundSB,
                     tilastopajaId: candidate.pzlaId
-                });
+                };
+                if (hasPB) payload.pb = foundPB;
+                if (hasSB) payload.sb = foundSB;
+
+                await updateEntryMutation.mutateAsync(payload);
                 if (!silent) alert(`Zaktualizowano wyniki dla ${candidate.name}`);
             } else {
                 // Update form state (only if found)
                 setNewEntry(prev => ({
                     ...prev,
-                    ...(foundPB !== undefined && { pb: foundPB }),
-                    ...(foundSB !== undefined && { sb: foundSB }),
+                    ...(hasPB && { pb: foundPB }),
+                    ...(hasSB && { sb: foundSB }),
                     tilastopajaId: candidate.pzlaId
                 }));
             }
 
             setIsPzlaModalOpen(false);
-            return true;
+            return hasPB || hasSB;
 
         } catch (err) {
             console.error(err);
@@ -464,7 +664,7 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
         },
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ['entries', selectedEventId] });
-            if (data) alert(`Zakończono masową aktualizację.\nZaktualizowano: ${data.updatedCount}\nPominięto/Nie znaleziono: ${data.skippedCount}`);
+            if (data) alert(`Zakonczono masowa aktualizacje.\nZaktualizowano: ${data.updatedCount}\nPominieto/Nie znaleziono: ${data.skippedCount}`);
         }
     });
 
@@ -472,6 +672,7 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
         return (
             <SeedingDnD
                 meetingId={meeting.id}
+                meetingSeason={meeting?.season}
                 eventId={selectedEventId}
                 eventName={eventName || ''}
                 onClose={() => setIsSeedingMode(false)}
@@ -537,6 +738,38 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                 size="sm"
                                 variant="outline"
                                 className="bg-white border-slate-200 text-slate-700 font-bold text-xs"
+                                onClick={() => {
+                                    const autoWind = eventRequiresWind(event?.name, event?.code);
+                                    setVerticalHeightSlots(createVerticalHeightSlots(event?.heights));
+                                    setEventModel({
+                                        name: event?.name || '',
+                                        code: event?.code || '',
+                                        gender: event?.gender || 'M',
+                                        eventCode: event?.eventCode || '',
+                                        ageGroup: event?.ageGroup || '',
+                                        stage: event?.stage || 'Final',
+                                        trialsMode: event?.trialsMode || '6',
+                                        lanes: event?.lanes || 8,
+                                        requiresWind: autoWind,
+                                        startTime: event?.startTime,
+                                        heights: heightsToInputValue(event?.heights),
+                                        finalStartTime: event?.finalStartTime,
+                                        finalCount: event?.finalCount || 1,
+                                        finalInterval: event?.finalInterval || 5,
+                                        finalStartTimes: event?.finalStartTimes || '[]',
+                                        advancementRule: event?.advancementRule || '',
+                                        completedTime: event?.completedTime || ''
+                                    });
+                                    setIsModelModalOpen(true);
+                                }}
+                            >
+                                <Settings className="h-3.5 w-3.5 mr-2 text-blue-500" />
+                                Ustawienia Konkurencji
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="bg-white border-slate-200 text-slate-700 font-bold text-xs"
                                 onClick={() => setIsSeedingMode(true)}
                             >
                                 <LayoutGrid className="h-3.5 w-3.5 mr-2 text-slate-500" />
@@ -552,6 +785,32 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                             </Button>
                         </div>
                     )}
+                </div>
+
+                <div className="mb-6 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <h3 className="text-xs font-black uppercase tracking-widest text-indigo-700">
+                                FinishLynx
+                            </h3>
+                            <p className="mt-1 text-xs font-medium text-indigo-700/80">
+                                Ścieżka z ustawień zawodów: {finishLynxExportPath || DEFAULT_FINISHLYNX_EXPORT_PATH}
+                            </p>
+                        </div>
+                        <Button
+                            className="h-10 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase tracking-widest"
+                            onClick={() => generateFinishLynxMutation.mutate()}
+                            disabled={generateFinishLynxMutation.isPending}
+                        >
+                            <CloudDownload className={`mr-2 h-4 w-4 ${generateFinishLynxMutation.isPending ? 'animate-pulse' : ''}`} />
+                            {generateFinishLynxMutation.isPending
+                                ? 'Generowanie Lynx...'
+                                : 'Generuj Lynx (.evt/.sch)'}
+                        </Button>
+                    </div>
+                    <p className="mt-2 text-xs font-medium text-indigo-700/80">
+                        Zmiana ścieżki: zakładka Ustawienia i Narzędzia {'->'} Główne Ustawienia Zawodów.
+                    </p>
                 </div>
 
                 {/* CONTENT */}
@@ -585,7 +844,7 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                 <span className="text-xs font-black text-slate-400 uppercase tracking-widest">
                                                     {isField ? 'Grupa' : 'Seria'}
                                                 </span>
-                                                <span className="text-sm font-bold text-slate-800">{heat}</span>
+                                                <span className="text-sm font-bold text-slate-800">{heatDisplayMap[heat] ?? heat}</span>
                                             </div>
                                             <span className="text-[10px] font-bold text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
                                                 {heatEntries.length} os.
@@ -637,8 +896,43 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                             <div className="flex flex-col justify-center">
                                                                 <a
                                                                     href={getPzlaUrl(entry, meeting.season)}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
+                                                                    onClick={async (e) => {
+                                                                        e.preventDefault();
+                                                                        if (entry.tilastopajaId) {
+                                                                            window.open(getPzlaUrl(entry, meeting.season), '_blank');
+                                                                            return;
+                                                                        }
+
+                                                                        // Try to resolve ID on the fly
+                                                                        const target = e.currentTarget;
+                                                                        target.style.cursor = 'wait';
+                                                                        target.style.opacity = '0.7';
+
+                                                                        try {
+                                                                            const response = await api.get(`/pzla/search`, {
+                                                                                params: { query: entry.athleteName, birthYear: entry.yearOfBirth }
+                                                                            });
+                                                                            const candidates = response.data;
+
+                                                                            if (candidates.length === 1) {
+                                                                                const candidate = candidates[0];
+                                                                                // Save for future
+                                                                                updateEntryMutation.mutate({ id: entry.id, tilastopajaId: candidate.pzlaId });
+
+                                                                                const r = meeting.season === 'INDOOR' ? 2 : 1;
+                                                                                const url = `https://statystyka.pzla.pl/personal.php?page=profile&nr_zaw=${candidate.pzlaId}&r=${r}`;
+                                                                                window.open(url, '_blank');
+                                                                            } else {
+                                                                                // Fallback
+                                                                                window.open(getPzlaUrl(entry, meeting.season), '_blank');
+                                                                            }
+                                                                        } catch (err) {
+                                                                            window.open(getPzlaUrl(entry, meeting.season), '_blank');
+                                                                        } finally {
+                                                                            target.style.cursor = 'pointer';
+                                                                            target.style.opacity = '1';
+                                                                        }
+                                                                    }}
                                                                     className="font-bold text-slate-800 text-sm leading-tight hover:text-blue-600 transition-colors flex items-center gap-1 group/link"
                                                                     title="Zobacz profil PZLA"
                                                                 >
@@ -655,20 +949,12 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                         </span>
                                                                     )}
                                                                 </div>
-                                                                {entry.relaySquad && (
+                                                                {parseRelaySquadMembers(entry.relaySquad).length > 0 && (
                                                                     <div className="mt-1 text-xs text-slate-500 flex items-center gap-1">
                                                                         <div className="flex flex-wrap gap-x-3 gap-y-1">
                                                                             {(() => {
-                                                                                let squad: any[] = [];
-                                                                                try {
-                                                                                    if (Array.isArray(entry.relaySquad)) {
-                                                                                        squad = entry.relaySquad;
-                                                                                    } else if (typeof entry.relaySquad === 'string') {
-                                                                                        squad = JSON.parse(entry.relaySquad);
-                                                                                    }
-                                                                                } catch (e) { /* ignore */ }
-
-                                                                                if (!squad || squad.length === 0) return <span>Brak składu</span>;
+                                                                                const squad = parseRelaySquadMembers(entry.relaySquad);
+                                                                                if (squad.length === 0) return <span>Brak składu</span>;
 
                                                                                 return squad.map((m: any, i: number) => (
                                                                                     <span key={i} className="inline-flex items-center">
@@ -694,7 +980,7 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                         <td className="px-4 py-3 text-left">
                                                             <div className="flex items-center gap-1">
                                                                 <span className="text-[10px] text-slate-400 font-mono">
-                                                                    {isField ? `ORD:${idx + 1}` : `S:${entry.heat || '-'}`}
+                                                                    {isField ? `ORD:${idx + 1}` : `S:${entry.heat ? (heatDisplayMap[entry.heat] ?? entry.heat) : '-'}`}
                                                                 </span>
                                                             </div>
                                                         </td>
@@ -952,7 +1238,10 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                     <Button
                                         onClick={() => addEntryMutation.mutate({
                                             ...newEntry,
-                                            relaySquad: JSON.stringify(newEntry.relaySquad)
+                                            relaySquad:
+                                                isRelay && newEntry.relaySquad.length > 0
+                                                    ? JSON.stringify(newEntry.relaySquad)
+                                                    : undefined,
                                         } as any)}
                                         disabled={!newEntry.athleteName || addEntryMutation.isPending}
                                         className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
@@ -993,237 +1282,295 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                         </div>
                     )
                 }
+                {editingSquadEntryId && (
+                    <RelaySquadEditor
+                        entryId={editingSquadEntryId}
+                        club={editingSquadClub || ''}
+                        initialSquad={editingSquad}
+                        clubAthletes={clubAthletes || []}
+                        onClose={() => setEditingSquadEntryId(null)}
+                        onSave={(newSquad) => {
+                            updateEntryMutation.mutate({
+                                id: editingSquadEntryId,
+                                relaySquad: JSON.stringify(newSquad)
+                            });
+                            setEditingSquadEntryId(null);
+                        }}
+                    />
+                )}
 
-                {editingSquadEntryId && (() => {
-                    // Filter club athletes: exclude those already in squad
-                    const squadNames = new Set(editingSquad.map(m => `${m.firstName}|${m.lastName}`.toLowerCase()));
-                    const filteredClubAthletes = (clubAthletes || []).filter(a => {
-                        // Filter by search text
-                        if (clubAthleteFilter) {
-                            const search = clubAthleteFilter.toLowerCase();
-                            if (!(a.athleteName || '').toLowerCase().includes(search)) return false;
-                        }
-                        return true;
-                    });
-
-                    return (
+                {/* MODEL & PARAMETERS MODAL */}
+                {
+                    isModelModalOpen && eventModel && (
                         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
-                            <div className="bg-white rounded-xl shadow-xl w-full max-w-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50">
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-blue-50">
                                     <div>
-                                        <h3 className="font-bold text-indigo-900">Edytuj skład sztafety</h3>
-                                        {editingSquadClub && <p className="text-xs text-indigo-500 mt-0.5">{editingSquadClub}</p>}
+                                        <h3 className="font-bold text-blue-900">Model i Parametry Konkurencji</h3>
+                                        <p className="text-xs text-blue-500 mt-0.5">{eventModel.name}</p>
                                     </div>
-                                    <button onClick={() => setEditingSquadEntryId(null)} className="text-indigo-400 hover:text-indigo-600">
+                                    <button onClick={() => setIsModelModalOpen(false)} className="text-blue-400 hover:text-blue-600">
                                         <X className="h-5 w-5" />
                                     </button>
                                 </div>
-                                <div className="max-h-[70vh] overflow-y-auto">
-                                    {/* Current squad */}
-                                    <div className="p-4 border-b border-slate-100">
-                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Aktualny skład ({editingSquad.length})</h4>
-                                        {editingSquad.length > 0 ? (
-                                            <div className="space-y-1.5">
-                                                {editingSquad.map((member, idx) => (
-                                                    <div key={idx} className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 group">
-                                                        <span className="font-bold text-slate-400 text-sm w-6">{idx + 1}.</span>
-                                                        <div className="flex-1 min-w-0">
-                                                            <span className="font-bold text-slate-800 text-sm">{member.firstName} {member.lastName}</span>
-                                                            <div className="flex gap-2 text-[11px] text-slate-500">
-                                                                {member.bib && <span>Nr: {member.bib}</span>}
-                                                                {member.yearOfBirth && <span>Ur. {member.yearOfBirth}</span>}
-                                                                {member.pb && <span className="text-emerald-600 font-medium">PB: {member.pb}</span>}
-                                                                {member.sb && <span className="text-blue-600 font-medium">SB: {member.sb}</span>}
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => {
-                                                                const updated = [...editingSquad];
-                                                                updated.splice(idx, 1);
-                                                                setEditingSquad(updated);
-                                                            }}
-                                                            className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                                                            title="Usuń zawodnika"
-                                                        >
-                                                            <Trash className="h-4 w-4" />
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <p className="text-sm text-slate-400 text-center py-2">Brak zawodników w składzie</p>
-                                        )}
-                                    </div>
-
-                                    {/* Add section */}
-                                    <div className="p-4">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Dodaj zawodnika</h4>
-                                            <div className="flex-1" />
-                                            <div className="flex bg-slate-100 rounded-lg p-0.5">
-                                                <button
-                                                    onClick={() => setShowManualAdd(false)}
-                                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${!showManualAdd ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                                                >
-                                                    Z klubu
-                                                </button>
-                                                <button
-                                                    onClick={() => setShowManualAdd(true)}
-                                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${showManualAdd ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                                                >
-                                                    Nowa osoba
-                                                </button>
-                                            </div>
+                                <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="col-span-2 space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Pełna Nazwa Konkurencji</label>
+                                            <Input
+                                                value={eventModel.name}
+                                                onChange={e => {
+                                                    const name = e.target.value;
+                                                    setEventModel({
+                                                        ...eventModel,
+                                                        name,
+                                                        requiresWind: eventRequiresWind(name, eventModel.code)
+                                                    });
+                                                }}
+                                                className="font-bold border-slate-200"
+                                            />
                                         </div>
 
-                                        {!showManualAdd ? (
-                                            <div>
-                                                {/* Search within club athletes */}
-                                                <input
-                                                    type="text"
-                                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none mb-2"
-                                                    value={clubAthleteFilter}
-                                                    onChange={(e) => setClubAthleteFilter(e.target.value)}
-                                                    placeholder="Szukaj zawodnika w klubie..."
-                                                />
-                                                <div className="max-h-48 overflow-y-auto space-y-1">
-                                                    {filteredClubAthletes.length > 0 ? filteredClubAthletes.map((athlete: any) => {
-                                                        const nameParts = (athlete.athleteName || '').split(' ');
-                                                        const firstName = nameParts[0] || '';
-                                                        const lastName = nameParts.slice(1).join(' ') || '';
-                                                        const alreadyInSquad = squadNames.has(`${firstName}|${lastName}`.toLowerCase());
 
-                                                        return (
-                                                            <button
-                                                                key={athlete.id}
-                                                                disabled={alreadyInSquad}
-                                                                onClick={() => {
-                                                                    setEditingSquad([...editingSquad, {
-                                                                        firstName: athlete.firstName || firstName,
-                                                                        lastName: athlete.lastName || lastName,
-                                                                        bib: '',
-                                                                        yearOfBirth: athlete.yearOfBirth || (athlete.birthDate ? new Date(athlete.birthDate).getFullYear() : undefined),
-                                                                        pb: athlete.pb,
-                                                                        sb: athlete.sb
-                                                                    }]);
-                                                                }}
-                                                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${alreadyInSquad ? 'opacity-40 cursor-not-allowed bg-slate-50' : 'hover:bg-blue-50 cursor-pointer'}`}
-                                                            >
-                                                                <div className="flex-1 min-w-0">
-                                                                    <span className="font-bold text-sm text-slate-800">{athlete.athleteName}</span>
-                                                                    <div className="flex gap-2 text-[11px] text-slate-500">
-                                                                        {athlete.yearOfBirth && <span>Ur. {athlete.yearOfBirth}</span>}
-                                                                        {athlete.pb && <span className="text-emerald-600">PB: {athlete.pb}</span>}
-                                                                        {athlete.sb && <span className="text-blue-600">SB: {athlete.sb}</span>}
-                                                                    </div>
-                                                                </div>
-                                                                {alreadyInSquad ? (
-                                                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">W składzie</span>
-                                                                ) : (
-                                                                    <span className="text-blue-500 text-xs font-bold">+ Dodaj</span>
-                                                                )}
-                                                            </button>
-                                                        );
-                                                    }) : (
-                                                        <p className="text-sm text-slate-400 text-center py-4">
-                                                            {clubAthleteFilter ? 'Brak wyników' : 'Brak zawodników w klubie'}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div>
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <div className="space-y-1">
-                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Imię</label>
-                                                        <input
-                                                            type="text"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                                                            value={editingSquadMember.firstName}
-                                                            onChange={(e) => setEditingSquadMember({ ...editingSquadMember, firstName: e.target.value })}
-                                                            placeholder="Jan"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Nazwisko</label>
-                                                        <input
-                                                            type="text"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                                                            value={editingSquadMember.lastName}
-                                                            onChange={(e) => setEditingSquadMember({ ...editingSquadMember, lastName: e.target.value })}
-                                                            placeholder="KOWALSKI"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Nr startowy</label>
-                                                        <input
-                                                            type="text"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                                                            value={editingSquadMember.bib || ''}
-                                                            onChange={(e) => setEditingSquadMember({ ...editingSquadMember, bib: e.target.value })}
-                                                            placeholder="123"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Rok urodzenia</label>
-                                                        <input
-                                                            type="number"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                                                            value={editingSquadMember.yearOfBirth || ''}
-                                                            onChange={(e) => setEditingSquadMember({ ...editingSquadMember, yearOfBirth: e.target.value ? parseInt(e.target.value) : undefined })}
-                                                            placeholder="2000"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">PB</label>
-                                                        <input
-                                                            type="text"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                                                            value={editingSquadMember.pb || ''}
-                                                            onChange={(e) => setEditingSquadMember({ ...editingSquadMember, pb: e.target.value })}
-                                                            placeholder="10.50"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">SB</label>
-                                                        <input
-                                                            type="text"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                                                            value={editingSquadMember.sb || ''}
-                                                            onChange={(e) => setEditingSquadMember({ ...editingSquadMember, sb: e.target.value })}
-                                                            placeholder="10.65"
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <button
-                                                    onClick={() => {
-                                                        if (!editingSquadMember.firstName || !editingSquadMember.lastName) return;
-                                                        setEditingSquad([...editingSquad, { ...editingSquadMember }]);
-                                                        setEditingSquadMember({ firstName: '', lastName: '', bib: '', yearOfBirth: undefined, pb: '', sb: '' });
+                                        <div className="col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                            <h4 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-2">
+                                                <div className="w-1 h-3 bg-blue-500 rounded-full" />
+                                                Harmonogram
+                                            </h4>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Data</label>
+                                            <div className="relative">
+                                                <Input
+                                                    type="date"
+                                                    value={eventModel.startTime ? new Date(eventModel.startTime).toISOString().split('T')[0] : (meeting?.date ? new Date(meeting.date).toISOString().split('T')[0] : '')}
+                                                    onChange={e => {
+                                                        const time = eventModel.startTime ? new Date(eventModel.startTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '10:00';
+                                                        setEventModel({ ...eventModel, startTime: new Date(`${e.target.value}T${time}:00`).toISOString() });
                                                     }}
-                                                    disabled={!editingSquadMember.firstName || !editingSquadMember.lastName}
-                                                    className="mt-3 w-full py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    className="border-slate-200 pl-8"
+                                                />
+                                                <Calendar className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Godzina</label>
+                                            <TimePicker
+                                                value={eventModel.startTime ? new Date(eventModel.startTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '10:00'}
+                                                onChange={(val: string) => {
+                                                    const date = eventModel.startTime ? new Date(eventModel.startTime).toISOString().split('T')[0] : (meeting?.date ? new Date(meeting.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
+                                                    setEventModel({ ...eventModel, startTime: new Date(`${date}T${val}:00`).toISOString() });
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div className="col-span-2 space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Godzina zakończenia (manualnie dla technicznych)</label>
+                                            <div className="flex items-center gap-2">
+                                                <TimePicker
+                                                    value={eventModel.completedTime || ''}
+                                                    onChange={(val: string) => setEventModel({ ...eventModel, completedTime: val })}
+                                                    className="flex-1"
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    className="h-11 border-slate-200 text-xs font-bold"
+                                                    onClick={() => setEventModel({ ...eventModel, completedTime: '' })}
                                                 >
-                                                    + Dodaj do składu
-                                                </button>
+                                                    Wyczyść
+                                                </Button>
+                                            </div>
+                                            <p className="text-[10px] text-slate-400">
+                                                Dla biegów pole uzupełnia się automatycznie po imporcie pliku LIF.
+                                            </p>
+                                        </div>
+
+                                        <div className="col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                            <h4 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-2">
+                                                <div className="w-1 h-3 bg-blue-500 rounded-full" />
+                                                Finał (opcjonalnie)
+                                            </h4>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Data Finału</label>
+                                            <div className="relative">
+                                                <Input
+                                                    type="date"
+                                                    value={eventModel.finalStartTime ? new Date(eventModel.finalStartTime).toISOString().split('T')[0] : (meeting?.date ? new Date(meeting.date).toISOString().split('T')[0] : '')}
+                                                    onChange={e => {
+                                                        const time = eventModel.finalStartTime ? new Date(eventModel.finalStartTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '12:00';
+                                                        setEventModel({ ...eventModel, finalStartTime: new Date(`${e.target.value}T${time}:00`).toISOString() });
+                                                    }}
+                                                    className="border-slate-200 pl-8"
+                                                />
+                                                <Calendar className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Godzina Finału A</label>
+                                            <TimePicker
+                                                value={eventModel.finalStartTime ? new Date(eventModel.finalStartTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '12:00'}
+                                                onChange={(val: string) => {
+                                                    const date = eventModel.finalStartTime ? new Date(eventModel.finalStartTime).toISOString().split('T')[0] : (meeting?.date ? new Date(meeting.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
+                                                    setEventModel({ ...eventModel, finalStartTime: new Date(`${date}T${val}:00`).toISOString() });
+                                                }}
+                                            />
+                                        </div>
+
+                                        {eventModel.finalCount > 1 && Array.from({ length: eventModel.finalCount - 1 }).map((_, i) => {
+                                            const idx = i + 1;
+                                            const times = JSON.parse(eventModel.finalStartTimes || '[]');
+                                            const currentTime = times[idx] || (eventModel.finalStartTime ? new Date(new Date(eventModel.finalStartTime).setMinutes(new Date(eventModel.finalStartTime).getMinutes() + (idx * (eventModel.finalInterval || 5)))).toISOString() : '');
+
+                                            return (
+                                                <div key={idx} className="space-y-1">
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Godzina Finału {String.fromCharCode(65 + idx)}</label>
+                                                    <TimePicker
+                                                        value={currentTime ? new Date(currentTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '12:00'}
+                                                        onChange={(val: string) => {
+                                                            const newTimes = [...times];
+                                                            while (newTimes.length <= idx) newTimes.push(eventModel.finalStartTime || new Date().toISOString());
+                                                            const date = new Date(newTimes[idx]).toISOString().split('T')[0];
+                                                            newTimes[idx] = new Date(`${date}T${val}:00`).toISOString();
+                                                            setEventModel({ ...eventModel, finalStartTimes: JSON.stringify(newTimes) });
+                                                        }}
+                                                    />
+                                                </div>
+                                            );
+                                        })}
+
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Liczba Finałów</label>
+                                            <Input
+                                                type="number"
+                                                min={1}
+                                                value={eventModel.finalCount}
+                                                onChange={e => setEventModel({ ...eventModel, finalCount: parseInt(e.target.value) || 1 })}
+                                                className="border-slate-200 font-bold"
+                                            />
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Odstęp (min.)</label>
+                                            <Input
+                                                type="number"
+                                                min={1}
+                                                value={eventModel.finalInterval || 5}
+                                                onChange={e => setEventModel({ ...eventModel, finalInterval: parseInt(e.target.value) || 5 })}
+                                                className="border-slate-200 font-bold"
+                                            />
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Zasada Awansu</label>
+                                            <Input
+                                                value={eventModel.advancementRule || ''}
+                                                onChange={e => setEventModel({ ...eventModel, advancementRule: e.target.value })}
+                                                placeholder="np. 8 najszybszych"
+                                                className="border-slate-200 font-bold"
+                                            />
+                                        </div>
+
+                                        <div className="col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                            <h4 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-2">
+                                                <div className="w-1 h-3 bg-blue-500 rounded-full" />
+                                                Ustawienia Techniczne
+                                            </h4>
+                                        </div>
+
+
+
+                                        {(eventModel.model === 'Field' || isFieldEvent(eventModel.name)) && (
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Tryb Prób (Tech.)</label>
+                                                <select
+                                                    className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                                    value={eventModel.trialsMode || '6'}
+                                                    onChange={e => setEventModel({ ...eventModel, trialsMode: e.target.value })}
+                                                >
+                                                    <option value="6">Standard (3+3 z finałem)</option>
+                                                    <option value="4">4 Próby (stałe)</option>
+                                                    <option value="3">3 Próby (stałe)</option>
+                                                    <option value="6_ALL">6 Prób (wszyscy)</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                        {(!isFieldEvent(eventModel.name) && eventModel.model !== 'Field') && (
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Liczba torów</label>
+                                                <Input
+                                                    type="number"
+                                                    value={eventModel.lanes}
+                                                    onChange={e => setEventModel({ ...eventModel, lanes: parseInt(e.target.value) || 8 })}
+                                                    className="border-slate-200"
+                                                />
+                                            </div>
+                                        )}
+
+                                        {isVerticalEvent(eventModel.name, eventModel.code) && (
+                                            <div className="col-span-2 border-t border-slate-100 pt-4 space-y-2">
+                                                <label className="text-[10px] font-bold text-blue-600 uppercase flex items-center gap-2">
+                                                    <ArrowUpDown className="h-3 w-3" />
+                                                    Plan Wysokości (Skok Wzwyż / Tyczka)
+                                                </label>
+                                                <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 space-y-3">
+                                                    <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                                                        {verticalHeightSlots.map((value, idx) => (
+                                                            <div key={idx} className="space-y-1">
+                                                                <label className="text-[9px] font-bold text-blue-500">#{idx + 1}</label>
+                                                                <Input
+                                                                    placeholder="np. 3.80"
+                                                                    value={value}
+                                                                    onChange={(e) => {
+                                                                        const next = [...verticalHeightSlots];
+                                                                        next[idx] = sanitizeHeightInput(e.target.value);
+                                                                        setVerticalHeightSlots(next);
+                                                                    }}
+                                                                    onBlur={(e) => {
+                                                                        const next = [...verticalHeightSlots];
+                                                                        next[idx] = normalizeHeightToken(e.target.value);
+                                                                        setVerticalHeightSlots(next);
+                                                                    }}
+                                                                    className="h-8 text-xs border-blue-200 focus:ring-blue-500"
+                                                                />
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    <p className="text-[9px] text-blue-500 italic">
+                                                        Pola 1-12 trafiają na górną belkę, 13-24 na dolną. Skrót 380 zostanie zapisany jako 3.80.
+                                                    </p>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
                                 </div>
                                 <div className="px-6 py-4 bg-slate-50 flex justify-end gap-3 border-t border-slate-100">
-                                    <Button variant="ghost" onClick={() => setEditingSquadEntryId(null)}>Anuluj</Button>
+                                    <Button variant="ghost" onClick={() => setIsModelModalOpen(false)}>Anuluj</Button>
                                     <Button
-                                        onClick={saveSquadEdit}
+                                        onClick={() => {
+                                            const heightsPayload = isVerticalEvent(eventModel.name, eventModel.code)
+                                                ? serializeVerticalHeightSlots(verticalHeightSlots)
+                                                : serializeHeightsPlan(eventModel.heights);
+                                            const completedTimePayload = (eventModel.completedTime || '').trim();
+                                            updateEventMutation.mutate({
+                                                ...eventModel,
+                                                heights: heightsPayload,
+                                                completedTime: completedTimePayload || null,
+                                            });
+                                        }}
                                         className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                                        disabled={updateEventMutation.isPending}
                                     >
-                                        Zapisz zmiany
+                                        {updateEventMutation.isPending ? 'Zapisywanie...' : 'Zastosuj zmiany'}
                                     </Button>
                                 </div>
                             </div>
                         </div>
-                    );
-                })()}
-
+                    )
+                }
             </Card >
         </>
     );

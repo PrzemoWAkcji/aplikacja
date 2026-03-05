@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useState } from 'react';
-import { Clock, Save, Layers, Users, Hash, ChevronRight, Activity, Printer } from 'lucide-react';
+import { Clock, Save, Layers, Users, Hash, ChevronRight, Activity, Printer, Calendar } from 'lucide-react';
 import { printTimetable } from '../../lib/printUtils';
+import { TimePicker } from '../ui/time-picker';
 
 interface Event {
     id: string;
@@ -18,6 +19,11 @@ interface Event {
     ageGroup?: string;
     stage?: string;
     model?: string;
+    finalStartTime?: string;
+    finalCount?: number;
+    finalInterval?: number;
+    finalStartTimes?: string;
+    advancementRule?: string;
     entries?: { heat: number | null }[];
 }
 
@@ -40,7 +46,65 @@ export default function ScheduleView({ meetingId, events, meeting }: ScheduleVie
         },
     });
 
-    const sortedEvents = [...events].sort((a, b) => {
+    // Flatten events into display rows (one for stage, one for final if exists)
+    const displayRows = events.flatMap(event => {
+        const rows = [];
+
+        // Primary stage row
+        rows.push({
+            id: event.id,
+            eventId: event.id,
+            type: 'primary',
+            name: event.name,
+            gender: event.gender,
+            ageGroup: event.ageGroup,
+            stage: event.stage,
+            startTime: event.startTime,
+            event: event
+        });
+
+        // Add final rows if it has a time and it's not already the primary stage
+        if (event.finalStartTime && event.stage !== 'Final') {
+            const count = event.finalCount || 1;
+            const interval = event.finalInterval || 5;
+            let customTimes: string[] = [];
+            try { customTimes = JSON.parse(event.finalStartTimes || '[]'); } catch (e) { }
+
+            for (let i = 0; i < count; i++) {
+                let startTimeIso = event.finalStartTime;
+
+                // If we have a custom time for this index, use it.
+                // Note: we consider individual times for any index.
+                if (customTimes[i]) {
+                    startTimeIso = customTimes[i];
+                } else if (i > 0) {
+                    // Fallback to interval calculation
+                    const date = new Date(event.finalStartTime);
+                    date.setMinutes(date.getMinutes() + (i * interval));
+                    startTimeIso = date.toISOString();
+                }
+
+                rows.push({
+                    id: `${event.id}-final-${i}`,
+                    eventId: event.id,
+                    type: 'final',
+                    index: i,
+                    total: count,
+                    name: count > 1 ? `${event.name} (Finał ${String.fromCharCode(65 + i)})` : event.name,
+                    gender: event.gender,
+                    ageGroup: event.ageGroup,
+                    stage: 'Final',
+                    startTime: startTimeIso,
+                    advancementRule: i === 0 ? event.advancementRule : null,
+                    event: event
+                });
+            }
+        }
+
+        return rows;
+    });
+
+    const sortedRows = displayRows.sort((a, b) => {
         if (!a.startTime && !b.startTime) return a.name.localeCompare(b.name);
         if (!a.startTime) return 1;
         if (!b.startTime) return -1;
@@ -59,23 +123,92 @@ export default function ScheduleView({ meetingId, events, meeting }: ScheduleVie
         const data = editingState[eventId];
         if (data) {
             updateMutation.mutate({ eventId, data });
-            // Semi-clear the state - usually we want to keep it until success but for simplicity:
             const newEditingState = { ...editingState };
             delete newEditingState[eventId];
             setEditingState(newEditingState);
         }
     };
 
-    const formatTimeForInput = (isoString?: string) => {
-        if (!isoString) return '';
+    const formatTimeOnly = (isoString?: string) => {
+        if (!isoString) return '10:00';
         const date = new Date(isoString);
-        return date.toISOString().slice(0, 16);
+        return date.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const formatDateOnly = (isoString?: string) => {
+        if (!isoString) return '';
+        return new Date(isoString).toISOString().split('T')[0];
+    };
+
+    const handleTimeChange = (eventId: string, time: string, isFinal: boolean = false, finalIndex?: number) => {
+        const event = events.find(e => e.id === eventId);
+
+        if (isFinal && finalIndex !== undefined) {
+            const count = editingState[eventId]?.finalCount || event?.finalCount || 1;
+            let currentTimes: string[] = [];
+            try { currentTimes = JSON.parse(editingState[eventId]?.finalStartTimes || event?.finalStartTimes || '[]'); } catch (e) { }
+
+            // If editing index 0, we can also sync it with finalStartTime
+            // But let's use the array for consistency
+            if (finalIndex === 0) {
+                const currentIso = editingState[eventId]?.finalStartTime || event?.finalStartTime || meeting?.date || new Date().toISOString();
+                const currentDate = new Date(currentIso).toISOString().split('T')[0];
+                const newTime = new Date(`${currentDate}T${time}:00`).toISOString();
+                handleFieldChange(eventId, 'finalStartTime', newTime);
+            } else {
+                // Individual final (B, C...)
+                while (currentTimes.length < count) {
+                    // Fill with interval if empty
+                    const nextIdx = currentTimes.length;
+                    const base = event?.finalStartTime ? new Date(event.finalStartTime) : new Date();
+                    base.setMinutes(base.getMinutes() + (nextIdx * (event?.finalInterval || 5)));
+                    currentTimes.push(base.toISOString());
+                }
+                const oldIso = currentTimes[finalIndex] || (meeting?.date || new Date().toISOString());
+                const datePart = new Date(oldIso).toISOString().split('T')[0];
+                currentTimes[finalIndex] = new Date(`${datePart}T${time}:00`).toISOString();
+                handleFieldChange(eventId, 'finalStartTimes', JSON.stringify(currentTimes));
+            }
+        } else {
+            const currentIso = editingState[eventId]?.startTime || event?.startTime || meeting?.date || new Date().toISOString();
+            const currentDate = new Date(currentIso).toISOString().split('T')[0];
+            handleFieldChange(eventId, 'startTime', new Date(`${currentDate}T${time}:00`).toISOString());
+        }
+    };
+
+    const handleDateChange = (eventId: string, date: string, isFinal: boolean = false, finalIndex?: number) => {
+        const event = events.find(e => e.id === eventId);
+        if (isFinal && finalIndex !== undefined) {
+            if (finalIndex === 0) {
+                const currentIso = editingState[eventId]?.finalStartTime || event?.finalStartTime || meeting?.date || new Date().toISOString();
+                const currentTime = new Date(currentIso).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+                handleFieldChange(eventId, 'finalStartTime', new Date(`${date}T${currentTime}:00`).toISOString());
+            } else {
+                const count = editingState[eventId]?.finalCount || event?.finalCount || 1;
+                let currentTimes: string[] = [];
+                try { currentTimes = JSON.parse(editingState[eventId]?.finalStartTimes || event?.finalStartTimes || '[]'); } catch (e) { }
+                while (currentTimes.length < count) {
+                    const nextIdx = currentTimes.length;
+                    const base = event?.finalStartTime ? new Date(event.finalStartTime) : new Date();
+                    base.setMinutes(base.getMinutes() + (nextIdx * (event?.finalInterval || 5)));
+                    currentTimes.push(base.toISOString());
+                }
+                const oldIso = currentTimes[finalIndex];
+                const timePart = new Date(oldIso).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+                currentTimes[finalIndex] = new Date(`${date}T${timePart}:00`).toISOString();
+                handleFieldChange(eventId, 'finalStartTimes', JSON.stringify(currentTimes));
+            }
+        } else {
+            const currentIso = editingState[eventId]?.startTime || event?.startTime || meeting?.date || new Date().toISOString();
+            const currentTime = new Date(currentIso).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+            handleFieldChange(eventId, 'startTime', new Date(`${date}T${currentTime}:00`).toISOString());
+        }
     };
 
     const getHeatCount = (entries?: { heat: number | null }[]) => {
         if (!entries || entries.length === 0) return 0;
         const heatNumbers = entries.map(e => e.heat).filter(h => h !== null) as number[];
-        if (heatNumbers.length === 0) return 1; // Default to 1 group if confirmed but not seeded
+        if (heatNumbers.length === 0) return 1;
         return Math.max(...heatNumbers);
     };
 
@@ -107,7 +240,7 @@ export default function ScheduleView({ meetingId, events, meeting }: ScheduleVie
                 </div>
             </CardHeader>
             <CardContent className="p-0">
-                {sortedEvents.length === 0 ? (
+                {sortedRows.length === 0 ? (
                     <div className="py-24 text-center">
                         <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-slate-50 mb-4">
                             <Layers className="h-10 w-10 text-slate-200" />
@@ -128,55 +261,106 @@ export default function ScheduleView({ meetingId, events, meeting }: ScheduleVie
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {sortedEvents.map((event) => {
+                                {sortedRows.map((row) => {
+                                    const event = row.event;
                                     const heatCount = getHeatCount(event.entries);
+                                    const isFinalRow = row.type === 'final';
                                     const isEditing = editingState[event.id] !== undefined;
 
+                                    // Calculate current display time based on editing state and row index
+                                    let currentStartTime = row.startTime;
+                                    if (isEditing) {
+                                        if (isFinalRow) {
+                                            if (row.index === 0) {
+                                                currentStartTime = editingState[event.id]?.finalStartTime || event.finalStartTime;
+                                            } else if (row.index !== undefined) {
+                                                let editTimes: string[] = [];
+                                                try { editTimes = JSON.parse(editingState[event.id]?.finalStartTimes || event.finalStartTimes || '[]'); } catch (e) { }
+                                                currentStartTime = editTimes[row.index] || row.startTime;
+                                            }
+                                        } else {
+                                            currentStartTime = editingState[event.id]?.startTime || event.startTime;
+                                        }
+                                    }
+
                                     return (
-                                        <tr key={event.id} className="group hover:bg-blue-50/30 transition-all duration-300">
+                                        <tr key={row.id} className={`group hover:bg-blue-50/30 transition-all duration-300 ${isFinalRow ? 'bg-amber-50/20' : ''}`}>
                                             <td className="px-6 py-4">
-                                                <Input
-                                                    type="datetime-local"
-                                                    className="h-9 w-[170px] bg-white border-slate-200 text-xs font-bold rounded-lg focus:ring-blue-500 shadow-sm"
-                                                    defaultValue={formatTimeForInput(event.startTime)}
-                                                    onChange={(e) => handleFieldChange(event.id, 'startTime', new Date(e.target.value).toISOString())}
-                                                />
+                                                <div className="flex flex-col gap-2">
+                                                    <div className="relative">
+                                                        <Input
+                                                            type="date"
+                                                            className="h-9 w-[170px] bg-white border-slate-200 text-xs font-bold rounded-lg focus:ring-blue-500 shadow-sm pl-8"
+                                                            value={formatDateOnly(currentStartTime) || (meeting?.date ? formatDateOnly(meeting.date) : '')}
+                                                            onChange={(e) => handleDateChange(event.id, e.target.value, isFinalRow, row.index)}
+                                                        />
+                                                        <Calendar className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                                                    </div>
+                                                    <TimePicker
+                                                        className="h-9 w-[170px]"
+                                                        value={formatTimeOnly(currentStartTime)}
+                                                        onChange={(val: string) => handleTimeChange(event.id, val, isFinalRow, row.index)}
+                                                    />
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="text-[11px] font-bold text-slate-500">
-                                                    {event.startTime ? new Date(event.startTime).toLocaleDateString('pl-PL') : '-'}
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Dzień</span>
+                                                <span className="text-[11px] font-bold text-slate-800 bg-slate-100 px-2 py-1 rounded-md">
+                                                    {currentStartTime ? new Date(currentStartTime).toLocaleDateString('pl-PL', { weekday: 'short', day: '2-digit', month: '2-digit' }) : '-'}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-black text-slate-900 uppercase tracking-tight">{event.name}</span>
-                                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider ${event.gender === 'K' ? 'bg-pink-100 text-pink-700' :
-                                                            event.gender === 'M' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                                                        <span className="text-sm font-black text-slate-900 uppercase tracking-tight">{row.name}</span>
+                                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider ${row.gender === 'K' ? 'bg-pink-100 text-pink-700' :
+                                                            row.gender === 'M' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
                                                             }`}>
-                                                            {event.gender}
+                                                            {row.gender}
                                                         </span>
+                                                        {isFinalRow && (
+                                                            <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                                                                AUTO FINAL
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="flex items-center gap-2 mt-1">
-                                                        <select
-                                                            className="h-7 w-28 px-1 bg-transparent border-none text-[10px] font-bold text-blue-600 focus:ring-0 cursor-pointer hover:bg-blue-50 rounded"
-                                                            defaultValue={event.stage || 'Final'}
-                                                            onChange={(e) => handleFieldChange(event.id, 'stage', e.target.value)}
-                                                        >
-                                                            <option value="Final">Finał</option>
-                                                            <option value="Heat">Eliminacje</option>
-                                                            <option value="Semi-Final">Półfinał</option>
-                                                            <option value="Qualification">Kwalifikacje</option>
-                                                        </select>
-                                                        <span className="text-[10px] font-bold text-slate-400">|</span>
-                                                        <span className="text-[10px] font-bold text-slate-500 uppercase">{event.ageGroup || 'Senior'}</span>
+                                                        {isFinalRow ? (
+                                                            <span className="h-7 px-1 flex items-center text-[10px] font-black text-amber-600 uppercase">Finał</span>
+                                                        ) : (
+                                                            <select
+                                                                className="h-7 w-24 px-1 bg-transparent border-none text-[10px] font-bold text-blue-600 focus:ring-0 cursor-pointer hover:bg-blue-50 rounded"
+                                                                value={editingState[event.id]?.stage || event.stage || 'Final'}
+                                                                onChange={(e) => handleFieldChange(event.id, 'stage', e.target.value)}
+                                                            >
+                                                                <option value="Final">Finał</option>
+                                                                <option value="Heat">Eliminacje</option>
+                                                                <option value="Semi-Final">Półfinał</option>
+                                                                <option value="Qualification">Kwalifikacje</option>
+                                                            </select>
+                                                        )}
+                                                        <span className="text-[10px] font-bold text-slate-300">|</span>
+                                                        <span className="text-[10px] font-bold text-slate-500 uppercase">{row.ageGroup || 'Senior'}</span>
+                                                        {isFinalRow && row.advancementRule && (
+                                                            <>
+                                                                <span className="text-[10px] font-bold text-slate-300">|</span>
+                                                                <span className="text-[10px] font-bold text-emerald-600 uppercase">Awans: {row.advancementRule}</span>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 <div className="inline-flex flex-col items-center">
-                                                    <span className="text-xs font-black text-slate-700">{heatCount > 1 ? `(1-${heatCount})` : `(${heatCount})`}</span>
-                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Serie</span>
+                                                    <span className="text-xs font-black text-slate-700">
+                                                        {isFinalRow
+                                                            ? (row.total || 1)
+                                                            : (heatCount > 1 ? `(1-${heatCount})` : `(${heatCount})`)
+                                                        }
+                                                    </span>
+                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                                                        {isFinalRow ? 'Finały' : 'Serie'}
+                                                    </span>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-right">

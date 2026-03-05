@@ -1,24 +1,115 @@
-'use client';
+﻿'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Trophy, RefreshCcw, Clock } from 'lucide-react';
+import { Fragment, useState, useMemo } from 'react';
 import { Button } from '../ui/button';
-import { Trophy, Upload, RefreshCcw, Wifi, Settings, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import { useEffect, useState, useMemo } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { eventRequiresWind, isMultiEvent } from '../../lib/utils';
 
-const getIsField = (eventName?: string, model?: string) => {
+const normalizeForMatch = (value: string = '') =>
+    value
+        .toLowerCase()
+        .replace(/\u0142/g, 'l')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+const getCodeBase = (code?: string) =>
+    normalizeForMatch(code || '').replace(/[^a-z0-9]/g, '');
+
+const getIsField = (eventName?: string, model?: string, eventCode?: string) => {
     const technicalKeywords = [
-        'kul', 'dysk', 'młot', 'oszczep', 'dal', 'trójskok', 'wzwyż', 'tycz', 'piłecz',
-        'lj', 'tj', 'sp', 'dt', 'jt', 'ht', 'hj', 'pv'
+        'kul', 'kula', 'dysk', 'mlot', 'oszczep', 'dal', 'trojskok', 'wieloskok', 'wzwyz', 'tycz', 'pilecz',
+        'long jump', 'triple jump', 'shot put', 'discus', 'javelin', 'hammer',
+        'high jump', 'pole vault'
     ];
-    const lowerName = (eventName || '').toLowerCase();
-    const isTechName = technicalKeywords.some(keyword => lowerName.includes(keyword));
-    const isTechModel = !!(model && (model.startsWith('FIELD') || model.startsWith('VERTICAL') || model.startsWith('QUALIFICATION')));
-    return isTechName || isTechModel;
+    const technicalCodes = ['lj', 'tj', 'sp', 'dt', 'jt', 'ht', 'hj', 'pv', 'bx'];
+    const lowerName = normalizeForMatch(eventName || '');
+    const codeBase = getCodeBase(eventCode);
+    const lowerModel = (model || '').toLowerCase();
+    const isTechName = technicalKeywords.some((keyword) => lowerName.includes(keyword));
+    const isTechCode = technicalCodes.some((code) => codeBase.startsWith(code));
+    const isTechModel = ['field', 'vertical', 'qualification'].some((prefix) => lowerModel.startsWith(prefix));
+    return isTechName || isTechCode || isTechModel;
 };
 
+const getIsVertical = (eventName?: string, eventCode?: string, model?: string) => {
+    const lowerName = normalizeForMatch(eventName || '');
+    const codeBase = getCodeBase(eventCode);
+    const lowerModel = (model || '').toLowerCase();
+    const isVerticalName = ['wzwy', 'tycz', 'high jump', 'pole vault'].some((keyword) => lowerName.includes(keyword));
+    const isVerticalCode = ['hj', 'pv'].some((code) => codeBase.startsWith(code));
+    return lowerModel.startsWith('vertical') || isVerticalName || isVerticalCode;
+};
+
+const ATTEMPT_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+const getAttemptLabel = (idx: number) => ATTEMPT_ROMAN[idx] || `P${idx + 1}`;
+
+const parseVerticalMarks = (verticalJSON?: string): Record<string, string> => {
+    if (!verticalJSON) return {};
+    try {
+        const parsed = JSON.parse(verticalJSON);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+};
+
+const sortHeightValues = (values: string[]) =>
+    [...values].sort((a, b) => parseFloat(a.replace(',', '.')) - parseFloat(b.replace(',', '.')));
+
+const parseHeightsPlan = (raw?: string): string[] => {
+    if (!raw || !raw.trim()) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return parsed.map((h) => String(h).trim()).filter((h) => h.length > 0);
+        }
+    } catch {
+        // fallback below for legacy CSV format
+    }
+    return raw
+        .split(/[,;]+/)
+        .map((h) => h.trim())
+        .filter((h) => h.length > 0);
+};
+
+const VERTICAL_START_HEIGHT_KEY = '__startHeight';
+
+const getVerticalStartHeight = (marks: Record<string, string>): string =>
+    (marks[VERTICAL_START_HEIGHT_KEY] || '').trim();
+
+const applyVerticalStartSkips = (
+    heights: string[],
+    marks: Record<string, string>,
+    explicitStartHeight?: string,
+): Record<string, string> => {
+    if (!Array.isArray(heights) || heights.length === 0) return marks;
+
+    const normalized = { ...marks };
+    const configuredStart = (explicitStartHeight || '').trim();
+    let firstAttemptIndex = configuredStart ? heights.findIndex((height) => height === configuredStart) : -1;
+
+    if (firstAttemptIndex < 0) {
+        firstAttemptIndex = heights.findIndex((height) => {
+            const mark = (normalized[height] || '').trim();
+            return mark.length > 0;
+        });
+    }
+
+    if (firstAttemptIndex <= 0) return normalized;
+
+    for (let i = 0; i < firstAttemptIndex; i++) {
+        const h = heights[i];
+        const current = (normalized[h] || '').trim();
+        if (!current) {
+            normalized[h] = '-';
+        }
+    }
+
+    return normalized;
+};
 interface Result {
     id: string;
     place: number;
@@ -28,11 +119,26 @@ interface Result {
     verticalJSON?: string;
     fieldJSON?: string;
     round1Result?: string;
+    round1Wind?: number | null;
     round2Result?: string;
+    round2Wind?: number | null;
     round3Result?: string;
+    round3Wind?: number | null;
     round4Result?: string;
+    round4Wind?: number | null;
     round5Result?: string;
+    round5Wind?: number | null;
     round6Result?: string;
+    round6Wind?: number | null;
+    points?: number | null;
+    isOverall?: boolean;
+    totalPoints?: number;
+    details?: {
+        eventCode: string;
+        performance: string;
+        points: number;
+    }[];
+    bestResult?: string;
     entry: {
         athleteName: string;
         bib: string;
@@ -46,61 +152,16 @@ interface ResultsViewProps {
     event: any;
 }
 
-const COMPETITION_MODELS = [
-    { value: 'STANDARD', label: 'Standard (Biegi)' },
-    { value: 'FIELD_4_ROUNDS', label: 'Cztery rundy (Bez zmiany kol.)' },
-    { value: 'FIELD_CONSECUTIVE_4', label: 'Kolejne próby: 4 rundy' },
-    { value: 'FIELD_CONSECUTIVE_6', label: 'Kolejne próby: 6 rund (wszyscy)' },
-    { value: 'FIELD_CONSECUTIVE_3_3', label: 'Kolejne próby: 3 + finał' },
-    { value: 'QUALIFICATION_3', label: 'Kwalifikacje: 3 próby' },
-    { value: 'UNLIMITED', label: 'Nielimitowana liczba rund' },
-    { value: 'STANDARD_FINAL', label: 'Standardowy finał (Top 8)' },
-    { value: 'WA_12_10_8_6', label: 'WA (12-10-8-6)' },
-    { value: 'WA_12_8_6_4', label: 'WA (12-8-6-4)' },
-    { value: 'STANDARD_FINAL_4', label: 'Standardowy finał (4 rundy)' },
-    { value: 'STANDARD_FINAL_X', label: 'Standardowy finał (X zawodników)' },
-    { value: 'STANDARD_FINAL_3_5', label: 'Finał (zmiana po 3 i 5)' },
-    { value: 'FIELD_6_ROUNDS', label: 'Sześć rund (Bez zmiany kol.)' },
-    { value: 'FIELD_MULTI', label: 'Wielobój: 3 próby (FIELD)' },
-    { value: 'VERTICAL_STANDARD', label: 'Skoki pionowe (Standard)' },
-    { value: 'VERTICAL_MULTI', label: 'Wielobój: Skoki pionowe' },
-];
-
 export default function ResultsView({ meetingId, event }: ResultsViewProps) {
     const eventId = event?.id || null;
     const eventName = event?.name || '';
     const model = event?.model || 'STANDARD';
-    const requiresWind = event?.requiresWind || false;
+    const eventCode = event?.code || '';
+    const requiresWind = eventRequiresWind(eventName, event?.code);
 
     const queryClient = useQueryClient();
-    const [socket, setSocket] = useState<Socket | null>(null);
-    const [isLive, setIsLive] = useState(false);
-    const [showSettings, setShowSettings] = useState(false);
-    const [newHeight, setNewHeight] = useState('');
-
-    // Socket.io Connection
-    useEffect(() => {
-        const newSocket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000');
-        setSocket(newSocket);
-
-        newSocket.on('connect', () => {
-            setIsLive(true);
-            if (eventId) {
-                newSocket.emit('joinEvent', eventId);
-            }
-        });
-
-        newSocket.on('resultsUpdated', (data) => {
-            console.log('Results updated via WebSocket:', data);
-            queryClient.invalidateQueries({ queryKey: ['results', eventId] });
-        });
-
-        newSocket.on('disconnect', () => setIsLive(false));
-
-        return () => {
-            newSocket.disconnect();
-        };
-    }, [eventId, queryClient]);
+    const [activeTab, setActiveTab] = useState<string | number>('ALL');
+    const [showAllAttempts, setShowAllAttempts] = useState(true);
 
     const { data: results, isLoading } = useQuery<Result[]>({
         queryKey: ['results', eventId],
@@ -111,88 +172,96 @@ export default function ResultsView({ meetingId, event }: ResultsViewProps) {
         enabled: !!eventId,
     });
 
-    const importLifMutation = useMutation({
-        mutationFn: async (file: File) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            return api.post(`/results/import/lif/${eventId}`, formData);
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['results', eventId] });
-            alert('Wyniki z pliku LIF zostały zaimportowane.');
-        },
-        onError: () => {
-            alert('Błąd podczas importu pliku LIF.');
-        }
-    });
+    const heats = useMemo(() => {
+        if (!results) return [];
+        const h = Array.from(new Set(results.map(r => r.entry.heat || 1))).sort((a, b) => a - b);
+        return h;
+    }, [results]);
 
-    const importEvtMutation = useMutation({
-        mutationFn: async (file: File) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            return api.post(`/results/import/evt/${eventId}`, formData);
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['results', eventId] });
-            alert('Rozstawienie z pliku EVT zostało zaimportowane.');
-        },
-        onError: () => {
-            alert('Błąd podczas importu pliku EVT.');
-        }
-    });
+    const filteredResults = useMemo(() => {
+        if (!results) return [];
+        if (activeTab === 'ALL') return results;
+        return results.filter(r => (r.entry.heat || 1) === activeTab);
+    }, [results, activeTab]);
 
-    const updateEventMutation = useMutation({
-        mutationFn: async (data: any) => api.patch(`/events/${eventId}`, data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
-        }
-    });
-
-    const heights = useMemo(() => {
-        try {
-            return event?.heights ? JSON.parse(event.heights) : [];
-        } catch (e) {
-            return [];
-        }
-    }, [event?.heights]);
-
-    const addHeight = () => {
-        if (!newHeight) return;
-        const updated = [...heights, newHeight].sort((a, b) => parseFloat(a) - parseFloat(b));
-        updateEventMutation.mutate({ heights: JSON.stringify(updated) });
-        setNewHeight('');
-    };
-
-    const removeHeight = (h: string) => {
-        const updated = heights.filter((item: string) => item !== h);
-        updateEventMutation.mutate({ heights: JSON.stringify(updated) });
-    };
+    const heights = useMemo(() => parseHeightsPlan(event?.heights), [event?.heights]);
 
     const updateResultMutation = useMutation({
-        mutationFn: async ({ id, data }: { id: string, data: any }) => api.patch(`/results/${id}`, data),
+        mutationFn: async ({ id, data }: { id: string, data: any }) => {
+            const response = await api.patch(`/results/${id}`, data);
+            return response.data;
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['results', eventId] });
+        },
+        onError: (error: any) => {
+            console.error('B\u0142\u0105d zapisu wyniku:', error?.response?.data || error.message);
+            alert('B\u0142\u0105d zapisu wyniku: ' + (error?.response?.data?.message || error.message));
         }
     });
 
-    const isVertical = model.includes('VERTICAL') || (eventName.toLowerCase().includes('wzwyż') || eventName.toLowerCase().includes('tycz') || eventName.toLowerCase().includes('pv') || eventName.toLowerCase().includes('hj'));
-    const isField = getIsField(eventName, model) && !isVertical;
+    const isVertical = getIsVertical(eventName, eventCode, model);
+    const isField = getIsField(eventName, model, eventCode) && !isVertical;
+    const normalizedEventName = normalizeForMatch(eventName);
+    const codeBase = getCodeBase(eventCode);
+    const isHorizontalJump =
+        codeBase.startsWith('lj') ||
+        codeBase.startsWith('tj') ||
+        normalizedEventName.includes('dal') ||
+        normalizedEventName.includes('trojskok') ||
+        normalizedEventName.includes('wieloskok') ||
+        normalizedEventName.includes('long jump') ||
+        normalizedEventName.includes('triple jump');
 
-    // Helper to get attempt count from model
+    // Helper to get attempt count from model and trialsMode
     const getRoundCount = () => {
+        // First check trialsMode from event settings
+        const trialsMode = event?.trialsMode;
+        if (trialsMode) {
+            if (trialsMode === '3') return 3;
+            if (trialsMode === '4') return 4;
+            if (trialsMode === '3+3' || trialsMode === '6') return 6;
+        }
+        // Fallback to model-based detection
         if (model.includes('FIELD_6') || model.includes('STANDARD_FINAL')) return 6;
         if (model.includes('FIELD_4')) return 4;
-        if (model.includes('MULTI_EVENT') || model.includes('QUALIFICATION')) return 3;
+        if (model.includes('MULTI') || model.includes('QUALIFICATION')) return 3;
+        if (getIsField(eventName, model, eventCode)) return 6;
         return 0;
     };
 
+    const updateHeatWindMutation = useMutation({
+        mutationFn: async ({ eventId, heat, wind }: { eventId: string, heat: number, wind: any }) =>
+            api.post('/results/wind', { eventId, heat, wind }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['results', eventId] });
+        }
+    });
+
     const roundCount = getRoundCount();
+    const isOverall = results?.[0]?.isOverall ?? false;
+    const isMultiContext =
+        isOverall ||
+        event?.stage === 'Multi-Event' ||
+        isMultiEvent(eventName) ||
+        (model || '').toUpperCase().includes('MULTI');
+    const showPointsColumn =
+        isMultiContext &&
+        (results?.some((r) => r.points !== null || r.totalPoints !== undefined) ?? false);
+    const hasAnyWindInResults =
+        results?.some((r) => r.wind !== undefined && r.wind !== null && !Number.isNaN(Number(r.wind))) ?? false;
+    const showGlobalWindColumn = !isField && !isVertical && (requiresWind || hasAnyWindInResults);
+    const showTechnicalAttempts = showAllAttempts && (isField || isVertical);
+    const technicalRowColSpan = 5 + (showGlobalWindColumn ? 1 : 0) + (showPointsColumn ? 1 : 0);
+    const eventStartTime = event?.startTime
+        ? new Date(event.startTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
+        : null;
 
     if (!eventId) {
         return (
             <div className="flex flex-col items-center justify-center py-12 text-gray-500">
                 <Trophy className="h-12 w-12 mb-4 opacity-20" />
-                <p>Wybierz konkurencję z listy, aby zobaczyć wyniki.</p>
+                <p>{'Wybierz konkurencj\u0119 z listy, aby zobaczy\u0107 wyniki.'}</p>
             </div>
         );
     }
@@ -200,126 +269,82 @@ export default function ResultsView({ meetingId, event }: ResultsViewProps) {
     return (
         <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                    <Trophy className="h-5 w-5 text-yellow-500" />
-                    Wyniki: {eventName}
-                    {isLive && (
-                        <span className="flex items-center gap-1 text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full animate-pulse uppercase font-bold ml-2">
-                            <Wifi className="h-3 w-3" />
-                            Live
-                        </span>
+                <div className="flex items-center gap-3 flex-wrap">
+                    <CardTitle className="flex items-center gap-2">
+                        <Trophy className="h-5 w-5 text-yellow-500" />
+                        Wyniki: {eventName}
+                    </CardTitle>
+                    {eventStartTime && (
+                        <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-200">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span className="text-[10px] font-black uppercase tracking-wider">Godzina</span>
+                            <span className="text-sm font-black font-mono leading-none">{eventStartTime}</span>
+                        </div>
                     )}
-                </CardTitle>
-                <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setShowSettings(!showSettings)}>
-                        <Settings className={`h-4 w-4 mr-2 ${showSettings ? 'text-blue-600' : ''}`} />
-                        Model & Parametry
-                    </Button>
+                </div>
+                <div className="flex gap-2 items-center">
+                    {activeTab !== 'ALL' && showGlobalWindColumn && (
+                        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-1 py-1 mr-2">
+                            <span className="text-[10px] font-black uppercase text-slate-500">Wiatr (Seria)</span>
+                            <input
+                                type="text"
+                                className="w-12 h-7 bg-white border border-slate-100 rounded text-center text-xs font-mono font-bold outline-none focus:ring-1 focus:ring-blue-500"
+                                placeholder="..."
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        updateHeatWindMutation.mutate({ eventId, heat: activeTab as number, wind: (e.target as HTMLInputElement).value });
+                                        (e.target as HTMLInputElement).value = '';
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
                     <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ['results', eventId] })}>
                         <RefreshCcw className="h-4 w-4 mr-2" />
-                        Odśwież
+                        {'Od\u015Bwie\u017C'}
                     </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs font-bold gap-2"
-                        onClick={() => {
-                            const input = document.createElement('input');
-                            input.type = 'file';
-                            input.accept = '.evt';
-                            input.onchange = (e) => {
-                                const file = (e.target as HTMLInputElement).files?.[0];
-                                if (file) importEvtMutation.mutate(file);
-                            };
-                            input.click();
-                        }}
-                    >
-                        Importuj EVT (Lynx)
-                    </Button>
-
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs font-bold gap-2"
-                        onClick={() => {
-                            const input = document.createElement('input');
-                            input.type = 'file';
-                            input.accept = '.lif';
-                            input.onchange = (e) => {
-                                const file = (e.target as HTMLInputElement).files?.[0];
-                                if (file) importLifMutation.mutate(file);
-                            };
-                            input.click();
-                        }}
-                    >
-                        Importuj LIF (Lynx)
-                    </Button>
+                    {(isField || isVertical) && (
+                        <div className="flex items-center gap-2 ml-1">
+                            <span className="text-sm font-medium text-slate-700">Próby</span>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={showAllAttempts}
+                                onClick={() => setShowAllAttempts((prev) => !prev)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${showAllAttempts ? 'bg-green-500' : 'bg-slate-300'}`}
+                            >
+                                <span
+                                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${showAllAttempts ? 'translate-x-5' : 'translate-x-0.5'}`}
+                                />
+                            </button>
+                        </div>
+                    )}
                 </div>
             </CardHeader>
+            <div className="px-6 border-b border-slate-100 flex items-center gap-1 overflow-x-auto scroller-hide">
+                <button
+                    onClick={() => setActiveTab('ALL')}
+                    className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all relative whitespace-nowrap ${activeTab === 'ALL' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                    Wszystkie {getIsField(eventName, model, eventCode) ? 'Grupy' : 'Serie'}
+                    {activeTab === 'ALL' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-600 rounded-t"></div>}
+                </button>
+                {(heats || []).map((hX: any) => (
+                    <button
+                        key={hX}
+                        onClick={() => setActiveTab(hX)}
+                        className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all relative whitespace-nowrap ${activeTab === hX ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        {getIsField(eventName, model, eventCode) ? `Grupa ${hX}` : `Seria ${hX}`}
+                        {activeTab === hX && <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-600 rounded-t"></div>}
+                    </button>
+                ))}
+            </div>
             <CardContent className="space-y-6">
-                {/* QUICK HEIGHT MANAGEMENT FOR VERTICAL JUMPS */}
-                {isVertical && (
-                    <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 mb-6">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div className="flex flex-col">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 mb-1">Zarządzanie Wysokościami (Tyczka / Wzwyż)</span>
-                                <span className="text-xs text-blue-400">Dodaj wysokości, na których zawodnicy będą oddawać próby.</span>
-                            </div>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    placeholder="Wpisz wysokość (np. 3.40)"
-                                    className="w-48 bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm font-bold text-blue-700 outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
-                                    value={newHeight}
-                                    onChange={(e) => setNewHeight(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && addHeight()}
-                                />
-                                <Button size="sm" onClick={addHeight} className="bg-blue-600 hover:bg-blue-700 shadow-md">
-                                    <Plus className="h-4 w-4 mr-1" />
-                                    Dodaj
-                                </Button>
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2 mt-4">
-                            {heights.map((h: string) => (
-                                <span
-                                    key={h}
-                                    className="bg-white text-blue-700 px-3 py-1.5 rounded-lg text-sm font-black border border-blue-200 flex items-center gap-2 shadow-sm hover:border-red-200 transition-all hover:text-red-600 group"
-                                >
-                                    {h}
-                                    <button onClick={() => removeHeight(h)} title="Usuń wysokość">
-                                        <Trash2 className="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 transition-opacity" />
-                                    </button>
-                                </span>
-                            ))}
-                            {heights.length === 0 && <span className="text-xs text-blue-300 italic py-1.5 px-3">Brak zdefiniowanych wysokości - dodaj pierwszą powyżej.</span>}
-                        </div>
-                    </div>
-                )}
-
-                {showSettings && (
-                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 animate-in slide-in-from-top-2 duration-300">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Model Konkurencji</label>
-                                <select
-                                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 transition-all outline-none"
-                                    value={model}
-                                    onChange={(e) => updateEventMutation.mutate({ model: e.target.value })}
-                                >
-                                    {COMPETITION_MODELS.map(m => (
-                                        <option key={m.value} value={m.value}>{m.label}</option>
-                                    ))}
-                                </select>
-                                <p className="text-[10px] text-slate-400">Określa sposób liczenia prób, awansu do finału i zmiany kolejności.</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
                 {isLoading ? (
-                    <div className="py-8 text-center">Ładowanie wyników...</div>
+                    <div className="py-8 text-center">{'\u0141adowanie wynik\u00F3w...'}</div>
                 ) : results?.length === 0 ? (
-                    <div className="py-8 text-center text-gray-500">Brak wyników dla tej konkurencji. Zaimportuj plik LIF.</div>
+                    <div className="py-8 text-center text-gray-500">{'Brak wynik\u00F3w dla tej konkurencji.'}</div>
                 ) : (
                     <div className="rounded-xl border border-slate-200 overflow-x-auto bg-white shadow-sm">
                         <table className="min-w-full divide-y divide-slate-200">
@@ -328,112 +353,248 @@ export default function ResultsView({ meetingId, event }: ResultsViewProps) {
                                     <th className="px-4 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest w-12 text-center">M-ce</th>
                                     <th className="px-4 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest w-16 text-center">Bib</th>
                                     <th className="px-6 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Zawodnik</th>
-                                    <th className="px-4 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest w-24 text-center">
-                                        {getIsField(eventName, model) ? 'Gr / Kol.' : 'Seria / Tor'}
+                                    {!results?.[0]?.isOverall && (
+                                        <th className="px-4 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest w-24 text-center">
+                                            {getIsField(eventName, model, eventCode) ? 'Gr / Kol.' : 'Seria / Tor'}
+                                        </th>
+                                    )}
+
+                                    <th className="px-6 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest w-28">
+                                        {results?.[0]?.isOverall ? 'Punkty' : 'Wynik'}
                                     </th>
-
-                                    {/* DYNAMIC ATTEMPT/HEIGHT COLUMNS */}
-                                    {isField && roundCount > 0 && Array.from({ length: roundCount }).map((_, i) => (
-                                        <th key={i} className="px-2 py-3 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest w-16">P{i + 1}</th>
-                                    ))}
-                                    {isVertical && heights.map((h: string) => (
-                                        <th key={h} className="px-2 py-3 text-center text-[10px] font-bold text-slate-500 w-16 bg-blue-50/30">{h}</th>
-                                    ))}
-
-                                    <th className="px-6 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest w-28">Result</th>
-                                    {requiresWind && <th className="px-6 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest w-16">Wiatr</th>}
+                                    {results?.[0]?.isOverall ? (
+                                        <th className="px-6 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest w-32">Detale</th>
+                                    ) : (
+                                        <>
+                                            {showGlobalWindColumn && <th className="px-6 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest w-16">Wiatr</th>}
+                                            {showPointsColumn && (
+                                                <th className="px-6 py-3 text-right text-[10px] font-black text-blue-600 uppercase tracking-widest w-24">Punkty</th>
+                                            )}
+                                        </>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-slate-100">
-                                {results?.sort((a, b) => (a.place || 999) - (b.place || 999)).map((result) => (
-                                    <tr key={result.id} className={`group hover:bg-blue-50/20 transition-all ${result.place === 1 ? 'bg-yellow-50/30 font-bold' : ''}`}>
+                                {([...(filteredResults || [])]).sort((a, b) => (a?.place || 999) - (b?.place || 999)).map((result) => {
+                                    const showAttemptRow = showTechnicalAttempts && !result.isOverall;
+                                    const verticalMarks = parseVerticalMarks(result.verticalJSON);
+                                    const verticalHeights = heights.length > 0
+                                        ? heights.map((h: string) => String(h))
+                                        : sortHeightValues(Object.keys(verticalMarks).filter((k) => k !== VERTICAL_START_HEIGHT_KEY));
+
+                                    return (
+                                    <Fragment key={result.id}>
+                                    <tr className={`group hover:bg-blue-50/20 transition-all ${result.place === 1 ? 'bg-yellow-50/30 font-bold' : ''}`}>
                                         <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-900 font-bold text-center">{result.place || '-'}</td>
                                         <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-500 text-center font-mono font-bold">{result.entry.bib}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="flex flex-col">
-                                                <span className="text-sm font-bold text-slate-900 group-hover:text-blue-700 transition-colors uppercase">{result.entry.athleteName}</span>
-                                            </div>
+                                            <span className="text-sm font-bold text-slate-900 group-hover:text-blue-700 transition-colors uppercase">
+                                                {result.entry.athleteName}
+                                            </span>
                                         </td>
-                                        <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-400 font-medium text-center">
-                                            {getIsField(eventName, model)
-                                                ? `G${result.entry.heat || 1} / O${result.entry.lane || '-'}`
-                                                : `S${result.entry.heat || 1} / T${result.entry.lane || '-'}`}
-                                        </td>
-
-                                        {/* ATTEMPT INPUTS */}
-                                        {isField && roundCount > 0 && Array.from({ length: roundCount }).map((_, i) => {
-                                            const fieldKey = `round${i + 1}Result`;
-                                            return (
-                                                <td key={i} className="px-1 py-4 text-center">
-                                                    <input
-                                                        type="text"
-                                                        className="w-12 h-8 text-center bg-slate-50 border border-slate-200 rounded text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500 outline-none hover:bg-white transition-all"
-                                                        defaultValue={(result as any)[fieldKey] || ''}
-                                                        onBlur={(e) => {
-                                                            if (e.target.value !== ((result as any)[fieldKey] || '')) {
-                                                                updateResultMutation.mutate({ id: result.id, data: { [fieldKey]: e.target.value } });
-                                                            }
-                                                        }}
-                                                    />
-                                                </td>
-                                            );
-                                        })}
-
-                                        {/* VERTICAL MARKS INPUTS */}
-                                        {isVertical && heights.map((h: string) => {
-                                            const verticalData = result.verticalJSON ? JSON.parse(result.verticalJSON) : {};
-                                            return (
-                                                <td key={h} className="px-1 py-4 text-center">
-                                                    <input
-                                                        type="text"
-                                                        placeholder="-"
-                                                        className={`w-12 h-8 text-center border-b-2 rounded text-xs font-mono font-bold outline-none transition-all ${verticalData[h]?.includes('X') ? 'bg-red-50 border-red-200 text-red-600' :
-                                                            verticalData[h]?.includes('O') ? 'bg-green-50 border-green-200 text-green-600' : 'bg-transparent border-transparent text-slate-400'
-                                                            } focus:bg-white focus:border-blue-500`}
-                                                        defaultValue={verticalData[h] || ''}
-                                                        onBlur={(e) => {
-                                                            const val = e.target.value.toUpperCase();
-                                                            if (val !== (verticalData[h] || '')) {
-                                                                const newData = { ...verticalData, [h]: val };
-                                                                updateResultMutation.mutate({ id: result.id, data: { verticalJSON: JSON.stringify(newData) } });
-                                                            }
-                                                        }}
-                                                    />
-                                                </td>
-                                            );
-                                        })}
+                                        {!result.isOverall && (
+                                            <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-400 font-medium text-center">
+                                                {getIsField(eventName, model, eventCode)
+                                                    ? `G${result.entry.heat || 1} / K${result.entry.lane || '-'}`
+                                                    : `S${result.entry.heat || 1} / T${result.entry.lane || '-'}`}
+                                            </td>
+                                        )}
 
                                         <td className="px-6 py-4 whitespace-nowrap text-right">
-                                            <input
-                                                type="text"
-                                                className="w-20 h-9 text-right bg-white border border-slate-200 rounded-lg px-2 text-[15px] font-black font-mono text-blue-700 shadow-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                                defaultValue={result.time || ''}
-                                                onBlur={(e) => {
-                                                    if (e.target.value !== (result.time || '')) {
-                                                        updateResultMutation.mutate({ id: result.id, data: { time: e.target.value } });
-                                                    }
-                                                }}
-                                            />
-                                        </td>
-                                        {requiresWind && (
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">
+                                            {result.isOverall ? (
+                                                <span className="text-[17px] font-black font-mono text-blue-700">{result.totalPoints}</span>
+                                            ) : (
                                                 <input
+                                                    key={`${result.id}-main-result-${((isField || isVertical) ? result.bestResult : result.time) || ''}`}
                                                     type="text"
-                                                    className="w-12 h-8 text-center bg-transparent text-xs font-mono outline-none focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-slate-200"
-                                                    defaultValue={result.wind !== undefined ? result.wind : ''}
+                                                    className="w-20 h-9 text-right bg-white border border-slate-200 rounded-lg px-2 text-[15px] font-black font-mono text-blue-700 shadow-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                    defaultValue={((isField || isVertical) ? result.bestResult : result.time) || ''}
                                                     onBlur={(e) => {
-                                                        const val = parseFloat(e.target.value);
-                                                        if (!isNaN(val) && val !== result.wind) {
-                                                            updateResultMutation.mutate({ id: result.id, data: { wind: val } });
-                                                        } else if (e.target.value === '' && result.wind !== null) {
-                                                            updateResultMutation.mutate({ id: result.id, data: { wind: null } });
+                                                        const newVal = e.target.value;
+                                                        const oldVal = ((isField || isVertical) ? result.bestResult : result.time);
+                                                        if (newVal !== (oldVal || '')) {
+                                                            const field = (isField || isVertical) ? 'bestResult' : 'time';
+                                                            updateResultMutation.mutate({ id: result.id, data: { [field]: newVal } });
                                                         }
                                                     }}
                                                 />
+                                            )}
+                                        </td>
+                                        {result.isOverall ? (
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-[10px] text-slate-400">
+                                                <div className="flex flex-col gap-1 items-end">
+                                                    {(result.details || []).map((det: any, idx: number) => (
+                                                        <div key={idx} className="flex gap-2">
+                                                            <span className="font-bold">{det.eventCode}:</span>
+                                                            <span>{det.performance}</span>
+                                                            <span className="text-blue-600 font-bold">({det.points} pkt)</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             </td>
+                                        ) : (
+                                            <>
+                                                {showGlobalWindColumn && (
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">
+                                                        <input
+                                                            key={`${result.id}-wind`}
+                                                            type="text"
+                                                            className="w-12 h-8 text-center bg-transparent text-xs font-mono outline-none focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-slate-200"
+                                                            defaultValue={result.wind !== undefined && result.wind !== null ? result.wind : ''}
+                                                            onBlur={(e) => {
+                                                                const val = e.target.value;
+                                                                const currentWindVal = result.wind?.toString() || '';
+                                                                if (val !== currentWindVal) {
+                                                                    updateResultMutation.mutate({ id: result.id, data: { wind: val === '' ? null : val } });
+                                                                }
+                                                            }}
+                                                        />
+                                                    </td>
+                                                )}
+                                                {showPointsColumn && (
+                                                    <td className="px-6 py-4 whitespace-nowrap text-right font-black text-blue-600 font-mono">
+                                                        {result.points !== null ? result.points : '-'}
+                                                    </td>
+                                                )}
+                                            </>
                                         )}
                                     </tr>
-                                ))}
+
+                                    {showAttemptRow && (
+                                        <tr className="bg-slate-50/60">
+                                            <td colSpan={technicalRowColSpan} className="px-4 pb-4 pt-1">
+                                                {isField && (
+                                                    roundCount > 0 ? (
+                                                        <div className="grid gap-2 mt-1" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
+                                                            {Array.from({ length: roundCount }).map((_, idx) => {
+                                                                const fieldKey = `round${idx + 1}Result` as keyof Result;
+                                                                const windKey = `round${idx + 1}Wind` as keyof Result;
+                                                                const currentVal = (result as any)[fieldKey] || '';
+                                                                const currentWind = (result as any)[windKey];
+                                                                return (
+                                                                    <div key={`${result.id}-attempt-card-${idx}`} className="rounded-md border border-slate-200 bg-white px-2 py-2">
+                                                                        <div className="text-[10px] font-black text-slate-400 mb-1">{getAttemptLabel(idx)}</div>
+                                                                        <input
+                                                                            key={`${result.id}-${fieldKey}-${currentVal}`}
+                                                                            type="text"
+                                                                            placeholder="wynik"
+                                                                            className="w-full h-8 text-center bg-slate-50 border border-slate-200 rounded text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                            defaultValue={currentVal}
+                                                                            onKeyDown={(e) => {
+                                                                                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                                                            }}
+                                                                            onBlur={(e) => {
+                                                                                const newVal = e.target.value.trim();
+                                                                                if (newVal !== currentVal) {
+                                                                                    updateResultMutation.mutate({ id: result.id, data: { [fieldKey]: newVal || null } });
+                                                                                }
+                                                                            }}
+                                                                        />
+                                                                        {isHorizontalJump && (
+                                                                            <>
+                                                                                <div className="mt-1 text-[9px] font-bold uppercase tracking-wide text-slate-400 text-center">wiatr</div>
+                                                                                <input
+                                                                                    key={`${result.id}-${windKey}-${currentWind ?? ''}`}
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    placeholder="+0.0"
+                                                                                    className="w-full h-6 mt-0.5 text-[10px] text-center bg-white border border-slate-200 rounded font-mono focus:border-blue-300 outline-none"
+                                                                                    defaultValue={currentWind !== null && currentWind !== undefined ? currentWind : ''}
+                                                                                    onKeyDown={(e) => {
+                                                                                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                                                                    }}
+                                                                                    onBlur={(e) => {
+                                                                                        const val = e.target.value.trim();
+                                                                                        if (val !== (currentWind?.toString() || '')) {
+                                                                                            updateResultMutation.mutate({ id: result.id, data: { [windKey]: val === '' ? null : val } });
+                                                                                        }
+                                                                                    }}
+                                                                                />
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-xs text-slate-500">Brak skonfigurowanej liczby prób.</div>
+                                                    )
+                                                )}
+                                                {isVertical && (
+                                                    verticalHeights.length > 0 ? (
+                                                        <div className="mt-1">
+                                                            <div className="mb-2 flex items-center gap-2">
+                                                                <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">Wys. startowa</span>
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="np. 1.80"
+                                                                    className="h-7 w-24 rounded border border-slate-200 bg-white px-2 text-xs font-mono font-bold text-slate-700 outline-none focus:border-blue-400"
+                                                                    defaultValue={getVerticalStartHeight(verticalMarks)}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                                                    }}
+                                                                    onBlur={(e) => {
+                                                                        const nextStartHeight = e.target.value.trim();
+                                                                        const nextMarks = { ...verticalMarks };
+                                                                        if (nextStartHeight) {
+                                                                            nextMarks[VERTICAL_START_HEIGHT_KEY] = nextStartHeight;
+                                                                        } else {
+                                                                            delete nextMarks[VERTICAL_START_HEIGHT_KEY];
+                                                                        }
+                                                                        const normalizedMarks = applyVerticalStartSkips(verticalHeights, nextMarks, nextStartHeight);
+                                                                        updateResultMutation.mutate({ id: result.id, data: { verticalJSON: JSON.stringify(normalizedMarks) } });
+                                                                    }}
+                                                                />
+                                                            </div>
+                                                            <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(95px, 1fr))' }}>
+                                                            {verticalHeights.map((h: string) => {
+                                                                const currentMark = verticalMarks[h] || '';
+                                                                return (
+                                                                    <div key={`${result.id}-vertical-card-${h}`} className="rounded-md border border-slate-200 bg-white px-2 py-2">
+                                                                        <div className="text-[10px] font-black text-slate-500 mb-1 text-center">{h}</div>
+                                                                        <input
+                                                                            key={`${result.id}-v-${h}-${currentMark}`}
+                                                                            type="text"
+                                                                            placeholder="-"
+                                                                            className={`w-full h-8 text-center rounded text-xs font-mono font-bold outline-none border ${currentMark?.includes('X')
+                                                                                ? 'bg-red-50 border-red-200 text-red-600'
+                                                                                : currentMark?.includes('O')
+                                                                                    ? 'bg-green-50 border-green-200 text-green-600'
+                                                                                    : 'bg-slate-50 border-slate-200 text-slate-600'
+                                                                                } focus:bg-white focus:border-blue-500`}
+                                                                            defaultValue={currentMark}
+                                                                            onKeyDown={(e) => {
+                                                                                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                                                            }}
+                                                                            onBlur={(e) => {
+                                                                                const val = e.target.value.toUpperCase().trim();
+                                                                                const previous = (currentMark || '').trim();
+                                                                                if (val !== previous) {
+                                                                                    const nextMarks = { ...verticalMarks, [h]: val };
+                                                                                    const normalizedMarks = applyVerticalStartSkips(
+                                                                                        verticalHeights,
+                                                                                        nextMarks,
+                                                                                        getVerticalStartHeight(verticalMarks),
+                                                                                    );
+                                                                                    updateResultMutation.mutate({ id: result.id, data: { verticalJSON: JSON.stringify(normalizedMarks) } });
+                                                                                }
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-xs text-slate-500">Brak ustawionych wysokości.</div>
+                                                    )
+                                                )}
+                                            </td>
+                                        </tr>
+                                    )}
+                                    </Fragment>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -442,3 +603,5 @@ export default function ResultsView({ meetingId, event }: ResultsViewProps) {
         </Card>
     );
 }
+
+

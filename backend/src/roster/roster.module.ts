@@ -5,9 +5,9 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { EntriesModule } from '../entries/entries.module';
 
 @Module({
-    imports: [PrismaModule, EntriesModule],
-    controllers: [RosterController],
-    providers: [RosterService],
-    exports: [RosterService],
+  imports: [PrismaModule, EntriesModule],
+  controllers: [RosterController],
+  providers: [RosterService],
+  exports: [RosterService],
 })
-export class RosterModule { }
+export class RosterModule {}

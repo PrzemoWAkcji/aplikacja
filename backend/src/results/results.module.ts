@@ -7,6 +7,8 @@ import { FileWatcherService } from './file-watcher.service';
 import { BullModule } from '@nestjs/bullmq';
 import { ResultsProcessor } from './results.processor';
 
+import { PointsService } from './points.service';
+
 @Module({
   imports: [
     PrismaModule,
@@ -15,7 +17,13 @@ import { ResultsProcessor } from './results.processor';
     }),
   ],
   controllers: [ResultsController],
-  providers: [ResultsService, ResultsGateway, FileWatcherService, ResultsProcessor],
-  exports: [ResultsService, ResultsGateway],
+  providers: [
+    ResultsService,
+    ResultsGateway,
+    FileWatcherService,
+    ResultsProcessor,
+    PointsService,
+  ],
+  exports: [ResultsService, ResultsGateway, PointsService],
 })
-export class ResultsModule { }
+export class ResultsModule {}

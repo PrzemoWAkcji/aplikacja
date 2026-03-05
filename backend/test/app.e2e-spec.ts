@@ -34,7 +34,7 @@ describe('AppController (e2e - mocked Prisma)', () => {
   });
 
   it('/ (GET)', () => {
-    return (request(app.getHttpServer() as any) as any)
+    return (request(app.getHttpServer()) as any)
       .get('/')
       .expect(200)
       .expect('Hello World!');

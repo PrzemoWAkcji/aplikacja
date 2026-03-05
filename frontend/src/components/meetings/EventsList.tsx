@@ -7,12 +7,16 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useState } from 'react';
 import { Plus, Trash2, Trophy, Users, Clock, Hash } from 'lucide-react';
+import { eventRequiresWind } from '../../lib/utils';
 
 interface Event {
     id: string;
     name: string;
     code: string;
     gender: string;
+    startTime?: string;
+    trialsMode?: string;
+    model?: string;
 }
 
 interface EventsListProps {
@@ -33,13 +37,27 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
         eventCode: '',
         ageGroup: '',
         stage: 'Final',
-        heights: ''
+        heights: '',
+        lanes: 8,
+        trialsMode: '6',
+        model: 'Track',
+        requiresWind: false
     });
 
     const filteredEvents = events.filter(e =>
         e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         e.code.toLowerCase().includes(searchQuery.toLowerCase())
     );
+    const sortedFilteredEvents = [...filteredEvents].sort((a, b) => {
+        if (!a.startTime && !b.startTime) return a.name.localeCompare(b.name, 'pl');
+        if (!a.startTime) return 1;
+        if (!b.startTime) return -1;
+
+        const byTime = new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+        if (byTime !== 0) return byTime;
+
+        return a.name.localeCompare(b.name, 'pl', { numeric: true, sensitivity: 'base' });
+    });
 
     const createMutation = useMutation({
         mutationFn: async (eventData: any) => {
@@ -48,7 +66,7 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
             setIsFormOpen(false);
-            setNewEvent({ name: '', code: '', gender: 'M', eventCode: '', ageGroup: '', stage: 'Final', heights: '' });
+            setNewEvent({ name: '', code: '', gender: 'M', eventCode: '', ageGroup: '', stage: 'Final', heights: '', lanes: 8, trialsMode: '6', model: 'Track', requiresWind: false });
         },
     });
 
@@ -81,14 +99,14 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
         if (nameLower.includes('3000')) return '3000';
         if (nameLower.includes('5000')) return '5000';
         if (nameLower.includes('10000') || nameLower.includes('10 000')) return '10000';
-        if (nameLower.includes('wzwyż')) return 'HJ';
+        if (nameLower.includes('wzwy\u017C')) return 'HJ';
         if (nameLower.includes('tyczce') || nameLower.includes('tyczka')) return 'PV';
         if (nameLower.includes('dal')) return 'LJ';
-        if (nameLower.includes('trójskok')) return 'TJ';
+        if (nameLower.includes('tr\u00F3jskok')) return 'TJ';
         if (nameLower.includes('kula')) return 'SP';
         if (nameLower.includes('dysk')) return 'DT';
         if (nameLower.includes('oszczep')) return 'JT';
-        if (nameLower.includes('młot')) return 'HT';
+        if (nameLower.includes('m\u0142ot')) return 'HT';
         if (nameLower.includes('4') && nameLower.includes('100')) return '4x100';
         if (nameLower.includes('4') && nameLower.includes('400')) return '4x400';
         return '';
@@ -98,14 +116,16 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
         const autoEventCode = getAutoEventCode(name);
         const suffix = newEvent.gender === 'MIX' ? 'X' : newEvent.gender;
         const code = autoEventCode ? `${autoEventCode}${suffix}` : newEvent.code;
+        const autoWind = eventRequiresWind(name, code);
 
-        setNewEvent({ ...newEvent, name, eventCode: autoEventCode, code });
+        setNewEvent({ ...newEvent, name, eventCode: autoEventCode, code, requiresWind: autoWind });
     };
 
     const handleGenderChange = (gender: string) => {
         const suffix = gender === 'MIX' ? 'X' : gender;
         const code = newEvent.eventCode ? `${newEvent.eventCode}${suffix}` : newEvent.code;
-        setNewEvent({ ...newEvent, gender, code });
+        const autoWind = eventRequiresWind(newEvent.name, code);
+        setNewEvent({ ...newEvent, gender, code, requiresWind: autoWind });
     };
 
     return (
@@ -152,21 +172,18 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
                                         autoFocus
                                     />
                                 </div>
-                                <Input
-                                    placeholder="Kod (100M)"
-                                    className="h-8 text-xs"
-                                    value={newEvent.code}
-                                    onChange={(e) => setNewEvent({ ...newEvent, code: e.target.value })}
-                                />
-                                <select
-                                    className="flex h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs shadow-sm"
-                                    value={newEvent.gender}
-                                    onChange={(e) => handleGenderChange(e.target.value)}
-                                >
-                                    <option value="M">Mężczyźni</option>
-                                    <option value="K">Kobiety</option>
-                                    <option value="MIX">Mix</option>
-                                </select>
+
+                                <div className="col-span-2">
+                                    <Input
+                                        type="number"
+                                        placeholder={'Liczba tor\u00F3w (domy\u015Blnie 8)'}
+                                        className="h-8 text-xs"
+                                        min={1}
+                                        max={20}
+                                        value={newEvent.lanes || ''}
+                                        onChange={(e) => setNewEvent({ ...newEvent, lanes: parseInt(e.target.value) || 8 })}
+                                    />
+                                </div>
                             </div>
                             <Button type="submit" size="sm" className="w-full h-8 text-xs font-bold bg-slate-900 hover:bg-slate-800" disabled={createMutation.isPending}>
                                 {createMutation.isPending ? '...' : 'Dodaj'}
@@ -175,60 +192,63 @@ export default function EventsList({ meetingId, events, selectedEventId, onSelec
                     </div>
                 )}
 
-                <div className="overflow-y-auto pr-2 space-y-1 flex-1">
-                    {filteredEvents.length === 0 ? (
-                        <div className="text-center py-10 text-slate-400 text-xs">
-                            Brak wyników
+                <div className="overflow-y-auto pr-2 space-y-4 flex-1">
+                    {sortedFilteredEvents.length === 0 ? (
+                        <div className="text-center py-10 text-slate-400 text-xs font-medium bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                            Brak konkurencji
                         </div>
                     ) : (
-                        filteredEvents.map((event) => (
-                            <div
-                                key={event.id}
-                                className={`
-                                    group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all relative overflow-hidden
-                                    ${selectedEventId === event.id
-                                        ? 'bg-blue-600 shadow-md shadow-blue-200'
-                                        : 'hover:bg-white hover:shadow-sm text-slate-600'
-                                    }
-                                `}
-                                onClick={() => onSelectEvent(event.id)}
-                            >
-                                <div className="flex items-center gap-3 relative z-10">
-                                    <div className={`
-                                        w-1 h-8 rounded-full 
-                                        ${selectedEventId === event.id ? 'bg-white/30' : 'bg-slate-200 group-hover:bg-blue-400'}
-                                    `}></div>
-
-                                    <div className="flex flex-col">
-                                        <span className={`text-sm font-bold leading-none ${selectedEventId === event.id ? 'text-white' : 'text-slate-700'}`}>
-                                            {event.name}
-                                        </span>
-                                        <span className={`text-[10px] mt-1 font-medium ${selectedEventId === event.id ? 'text-blue-100' : 'text-slate-400'}`}>
-                                            {event.gender === 'M' ? 'Mężczyźni' : event.gender === 'K' ? 'Kobiety' : 'Mix'} • {event.code}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {selectedEventId === event.id && (
-                                    <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-blue-600 to-transparent pointer-events-none" />
-                                )}
-
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
+                        <div className="space-y-1.5 pt-2">
+                            <h4 className="px-3 text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-2">
+                                Kolejność wg programu minutowego
+                            </h4>
+                            {sortedFilteredEvents.map((event) => (
+                                <div
+                                    key={event.id}
                                     className={`
-                                        h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition-all z-20
-                                        ${selectedEventId === event.id ? 'text-white hover:bg-white/20' : 'text-slate-400 hover:text-red-500 hover:bg-slate-100'}
+                                        group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all relative overflow-hidden
+                                        ${selectedEventId === event.id
+                                            ? 'bg-blue-600 shadow-md shadow-blue-200'
+                                            : 'hover:bg-white hover:shadow-sm text-slate-600'
+                                        }
                                     `}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (confirm('Usunąć konkurencję?')) deleteMutation.mutate(event.id);
-                                    }}
+                                    onClick={() => onSelectEvent(event.id)}
                                 >
-                                    <Trash2 className="h-3 w-3" />
-                                </Button>
-                            </div>
-                        ))
+                                    <div className="flex items-center gap-3 relative z-10">
+                                        <div className={`
+                                            w-1 h-8 rounded-full 
+                                            ${selectedEventId === event.id ? 'bg-white/30' : 'bg-slate-200 group-hover:bg-blue-400'}
+                                        `}></div>
+
+                                        <div className="flex flex-col">
+                                            <span className={`text-sm font-bold leading-none ${selectedEventId === event.id ? 'text-white' : 'text-slate-700'}`}>
+                                                {event.name}
+                                            </span>
+                                            <span className={`text-[10px] mt-1 font-medium ${selectedEventId === event.id ? 'text-blue-100' : 'text-slate-400'}`}>
+                                                {event.gender === 'M' ? 'Mężczyźni' : event.gender === 'K' ? 'Kobiety' : 'Mix'} | {event.code}
+                                                {event.startTime
+                                                    ? ` | ${new Date(event.startTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}`
+                                                    : ' | bez godziny'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className={`h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity ${selectedEventId === event.id ? 'text-white hover:bg-white/20' : 'text-slate-300 hover:text-red-500 hover:bg-red-50'}`}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (confirm(`Czy na pewno usunąć konkurencję ${event.name}?`)) {
+                                                deleteMutation.mutate(event.id);
+                                            }
+                                        }}
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </div>
             </CardContent>

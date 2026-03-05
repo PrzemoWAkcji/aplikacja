@@ -61,6 +61,7 @@ model Meeting {
   location      String
   city          String?
   country       String?       @default("POL")
+  domtelMeetingCode String?
   season        MeetingSeason @default(STADIUM)
   type          MeetingType   @default(REGIONAL)
   status        MeetingStatus @default(DRAFT)
@@ -68,6 +69,7 @@ model Meeting {
   organizerId   String
   organizerLogo String?
   sponsorLogos  String[] // URLs or paths to sponsor logos
+  syncOnlineEventNames Boolean @default(false)
   events        Event[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -82,14 +84,25 @@ model Event {
   ageGroup       String? // U16, U18, U20, Senior
   stage          String   @default("Final") // Heat, Semi-Final, Final, etc.
   model          String?  // Roster Athletics competition model (Standard, Field 3+3, etc.)
+  trialsMode     String?  // "3", "4", "3+3" (6), "6"
   requiresWind   Boolean  @default(false)
   startTime      DateTime?
+  completedTime  String?
   heights        String? // JSON array of heights for vertical jumps, e.g., "[1.40, 1.45, 1.50]"
+  lanes          Int      @default(8)
+  finalStartTime DateTime?
+  finalCount     Int?      @default(1)
+  finalInterval  Int?      @default(5)
+  finalStartTimes String?   // JSON array of ISO strings
+  advancementRule String?  // e.g. "8 to final" or "3Q + 2q"
   meeting        Meeting  @relation(fields: [meetingId], references: [id])
   meetingId      String
   entries        Entry[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  parentEvent    Event?    @relation("SubEvents", fields: [parentEventId], references: [id])
+  parentEventId  String?
+  subEvents      Event[]   @relation("SubEvents")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 enum EntryStatus {
@@ -159,11 +172,17 @@ model Result {
   
   // Field event trials (for throws/jumps)
   round1Result   String?  // "X", "O", "-", or distance/height
+  round1Wind     Float?
   round2Result   String?
+  round2Wind     Float?
   round3Result   String?
+  round3Wind     Float?
   round4Result   String?
+  round4Wind     Float?
   round5Result   String?
+  round5Wind     Float?
   round6Result   String?
+  round6Wind     Float?
   bestResult     String?  // Best result from all rounds
   
   // Detailed results for technical events
@@ -172,6 +191,7 @@ model Result {
   
   // Status
   status         String   @default("OK") // OK, DNS, DNF, DQ, NM
+  points         Int?
   
   // Relations
   entry          Entry    @relation(fields: [entryId], references: [id])
@@ -205,4 +225,3 @@ model Athlete {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 }
-

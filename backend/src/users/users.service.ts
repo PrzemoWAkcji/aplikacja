@@ -5,23 +5,24 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-    constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
-    async findOne(email: string): Promise<User | null> {
-        return this.prisma.user.findUnique({
-            where: { email },
-        });
-    }
+  async findOne(email: string): Promise<User | null> {
+    return this.prisma.user.findUnique({
+      where: { email },
+    });
+  }
 
-    async create(data: Prisma.UserCreateInput): Promise<User> {
-        const salt = await bcrypt.genSalt();
-        const hashedPassword = await bcrypt.hash(data.password, salt);
+  async create(data: Prisma.UserCreateInput): Promise<User> {
+    const salt = await bcrypt.genSalt();
+    const hashedPassword = await bcrypt.hash(data.password, salt);
 
-        return this.prisma.user.create({
-            data: {
-                ...data,
-                password: hashedPassword,
-            },
-        });
-    }
+    return this.prisma.user.create({
+      data: {
+        ...data,
+        password: hashedPassword,
+        role: 'ORGANIZER', // Domyślnie nowi użytkownicy są organizatorami
+      },
+    });
+  }
 }

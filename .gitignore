@@ -15,3 +15,14 @@ Office 11/
 check_*.js
 test_*.js
 fetch_*.js
+!backend/src/utils/text-decoder.util.ts
+!backend/src/utils/text-decoder.util.spec.ts
+!backend/src/pzla/pzla.service.spec.ts
+!backend/src/test-fixtures/encoding.fixtures.ts
+!backend/scripts/repair-mojibake.ts
+!backend/
+!backend/src/
+!backend/src/utils/
+!backend/src/pzla/
+!backend/src/test-fixtures/
+!backend/scripts/

@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Patch, Body, Param, Delete, UseGuards, UseInterceptors, UploadedFile, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  Delete,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  Query,
+} from '@nestjs/common';
 import { ResultsService } from './results.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -8,7 +20,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('results')
 export class ResultsController {
-  constructor(private readonly resultsService: ResultsService) { }
+  constructor(private readonly resultsService: ResultsService) {}
 
   @Get()
   findAll(@Query('eventId') eventId?: string) {
@@ -50,6 +62,19 @@ export class ResultsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateResultDto: any) {
     return this.resultsService.update(id, updateResultDto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Post('wind')
+  async updateHeatWind(
+    @Body() data: { eventId: string; heat: number; wind: any },
+  ) {
+    return this.resultsService.updateHeatWind(
+      data.eventId,
+      data.heat,
+      data.wind,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

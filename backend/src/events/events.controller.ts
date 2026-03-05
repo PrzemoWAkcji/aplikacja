@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
+  Query,
+} from '@nestjs/common';
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
@@ -10,60 +20,63 @@ import { Role } from '@prisma/client';
 
 @Controller('events')
 export class EventsController {
-    constructor(private readonly eventsService: EventsService) { }
+  constructor(private readonly eventsService: EventsService) {}
 
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.ORGANIZER, Role.ADMIN)
-    @Post()
-    create(@Body() createEventDto: CreateEventDto) {
-        return this.eventsService.create(createEventDto);
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Post()
+  create(@Body() createEventDto: CreateEventDto) {
+    return this.eventsService.create(createEventDto);
+  }
 
-    @Get()
-    findAll(@Query('meetingId') meetingId?: string) {
-        if (meetingId) {
-            return this.eventsService.findByMeeting(meetingId);
-        }
-        return this.eventsService.findAll();
+  @Get()
+  findAll(@Query('meetingId') meetingId?: string) {
+    if (meetingId) {
+      return this.eventsService.findByMeeting(meetingId);
     }
+    return this.eventsService.findAll();
+  }
 
-    @Get(':id')
-    findOne(@Param('id') id: string) {
-        return this.eventsService.findOne(id);
-    }
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.eventsService.findOne(id);
+  }
 
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.ORGANIZER, Role.ADMIN)
-    @Patch(':id')
-    update(@Param('id') id: string, @Body() updateEventDto: UpdateEventDto) {
-        return this.eventsService.update(id, updateEventDto);
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateEventDto: UpdateEventDto) {
+    return this.eventsService.update(id, updateEventDto);
+  }
 
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.ORGANIZER, Role.ADMIN)
-    @Delete(':id')
-    remove(@Param('id') id: string) {
-        return this.eventsService.remove(id);
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.eventsService.remove(id);
+  }
 
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.ORGANIZER, Role.ADMIN)
-    @Delete(':id/start-list')
-    clearStartList(@Param('id') id: string) {
-        return this.eventsService.clearSeeding(id);
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Delete(':id/start-list')
+  clearStartList(@Param('id') id: string) {
+    return this.eventsService.clearSeeding(id);
+  }
 
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.ORGANIZER, Role.ADMIN)
-    @Post(':id/start-list')
-    generateStartList(@Param('id') id: string, @Body() body: GenerateStartListDto) {
-        return this.eventsService.generateStartList(id, body);
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Post(':id/start-list')
+  generateStartList(
+    @Param('id') id: string,
+    @Body() body: GenerateStartListDto,
+  ) {
+    return this.eventsService.generateStartList(id, body);
+  }
 
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.ORGANIZER, Role.ADMIN)
-    @Post(':id/split')
-    splitMultiEvent(@Param('id') id: string) {
-        return this.eventsService.splitMultiEvent(id);
-    }
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Post(':id/split')
+  splitMultiEvent(@Param('id') id: string) {
+    return this.eventsService.splitMultiEvent(id);
+  }
 }

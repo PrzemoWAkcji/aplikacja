@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
@@ -8,28 +8,191 @@ import { Input } from '../../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../../components/ui/card';
 import { useAuthStore } from '../../../store/auth-store';
 import { Trophy, Calendar, MapPin, Globe, Activity, Clock, ShieldCheck } from 'lucide-react';
+import { TimePicker } from '../../../components/ui/time-picker';
+import { DatePicker } from '../../../components/ui/date-picker';
+
+interface StarterMeetingOption {
+    id: string;
+    name: string;
+    location: string;
+    dateLabel: string;
+    label: string;
+}
+
+function pad2(value: number): string {
+    return value < 10 ? `0${value}` : `${value}`;
+}
+
+function toIsoDate(day: number, month: number, year: number): string {
+    return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+function parseFullPolishDate(value: string): string | null {
+    const match = value.trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+    if (!match) return null;
+    const day = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10);
+    const year = parseInt(match[3], 10);
+    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+    return toIsoDate(day, month, year);
+}
+
+function parseDateRangeFromLabel(dateLabel: string): { startDate?: string; endDate?: string } {
+    const label = (dateLabel || '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/[–—]/g, '-')
+        .trim();
+    if (!label) return {};
+
+    const fullDateMatches = [...label.matchAll(/\b\d{1,2}[./-]\d{1,2}[./-]\d{4}\b/g)]
+        .map((m) => parseFullPolishDate(m[0]))
+        .filter((v): v is string => !!v);
+
+    if (fullDateMatches.length >= 2) {
+        return {
+            startDate: fullDateMatches[0],
+            endDate: fullDateMatches[fullDateMatches.length - 1],
+        };
+    }
+
+    if (fullDateMatches.length === 1) {
+        const endDate = fullDateMatches[0];
+        const year = parseInt(endDate.slice(0, 4), 10);
+        const shortStart = label.match(/\b(\d{1,2})[./-](\d{1,2})\b\s*-/);
+
+        if (shortStart) {
+            const day = parseInt(shortStart[1], 10);
+            const month = parseInt(shortStart[2], 10);
+            if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+                return {
+                    startDate: toIsoDate(day, month, year),
+                    endDate,
+                };
+            }
+        }
+
+        return { startDate: endDate, endDate };
+    }
+
+    return {};
+}
+
+function parseDateRangeFromMeeting(meeting: StarterMeetingOption): { startDate?: string; endDate?: string } {
+    const candidates = [
+        meeting.dateLabel || '',
+        meeting.label || '',
+        `${meeting.location || ''} ${meeting.dateLabel || ''}`.trim(),
+    ];
+
+    for (const candidate of candidates) {
+        const parsed = parseDateRangeFromLabel(candidate);
+        if (parsed.startDate || parsed.endDate) {
+            return parsed;
+        }
+    }
+
+    return {};
+}
+
+function inferSeasonFromMeetingName(name: string): 'INDOOR' | 'STADIUM' {
+    const normalized = (name || '').toLowerCase();
+    if (normalized.includes('halow') || normalized.includes('indoor')) {
+        return 'INDOOR';
+    }
+    return 'STADIUM';
+}
+
+function inferCityFromLocation(location: string): string {
+    const raw = (location || '').trim();
+    if (!raw) return '';
+    return raw.split(',')[0].trim();
+}
 
 export default function CreateMeetingPage() {
     const [formData, setFormData] = useState({
         name: '',
-        date: '',
+        startDate: '',
+        startTime: '10:00',
         endDate: '',
+        endTime: '18:00',
         location: '',
         city: '',
         country: 'POL',
+        domtelMeetingCode: '',
         season: 'STADIUM',
         type: 'REGIONAL',
         status: 'DRAFT'
     });
+    const [showStarterImport, setShowStarterImport] = useState(false);
+    const [starterEmail, setStarterEmail] = useState('');
+    const [starterMeetings, setStarterMeetings] = useState<StarterMeetingOption[]>([]);
+    const [selectedStarterMeetingId, setSelectedStarterMeetingId] = useState('');
+    const [isLoadingStarterMeetings, setIsLoadingStarterMeetings] = useState(false);
+    const [isImportingStarter, setIsImportingStarter] = useState(false);
+    const [autoImportStarterEntries, setAutoImportStarterEntries] = useState(true);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const router = useRouter();
     const token = useAuthStore((state) => state.token);
+    const _hasHydrated = useAuthStore((state) => state._hasHydrated);
 
-    if (!token) {
-        router.push('/login');
-        return null;
-    }
+    useEffect(() => {
+        if (_hasHydrated && !token) {
+            router.push('/login');
+        }
+    }, [_hasHydrated, token, router]);
+
+    const fetchStarterMeetings = async () => {
+        if (!starterEmail.trim()) {
+            alert('Podaj adres email uzywany w Starter PZLA.');
+            return;
+        }
+
+        setIsLoadingStarterMeetings(true);
+        try {
+            const response = await api.get('/file-mapping/starter/meetings', {
+                params: { email: starterEmail.trim() }
+            });
+            const meetings = (response.data?.meetings || []) as StarterMeetingOption[];
+            setStarterMeetings(meetings);
+
+            if (meetings.length === 0) {
+                alert('Nie znaleziono imprez dla podanego adresu email.');
+                return;
+            }
+
+            setSelectedStarterMeetingId(meetings[0].id);
+        } catch {
+            alert('Nie udalo sie pobrac listy imprez ze Starter PZLA.');
+        } finally {
+            setIsLoadingStarterMeetings(false);
+        }
+    };
+
+    const applyStarterMeetingToForm = () => {
+        const selected = starterMeetings.find((m) => m.id === selectedStarterMeetingId);
+        if (!selected) {
+            alert('Wybierz impreze ze Starter.');
+            return;
+        }
+
+        const { startDate, endDate } = parseDateRangeFromMeeting(selected);
+        const location = (selected.location || '').trim();
+        const inferredCity = inferCityFromLocation(location);
+        const season = inferSeasonFromMeetingName(selected.name);
+
+        setFormData((prev) => ({
+            ...prev,
+            name: selected.name || prev.name,
+            location: location || prev.location,
+            city: inferredCity || prev.city,
+            startDate: startDate || prev.startDate,
+            endDate: endDate || prev.endDate || startDate || prev.startDate,
+            season,
+        }));
+    };
+
+    if (!token) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -37,16 +200,48 @@ export default function CreateMeetingPage() {
         setLoading(true);
 
         try {
-            await api.post('/meetings', {
-                ...formData,
-                date: new Date(formData.date).toISOString(),
-                endDate: formData.endDate ? new Date(formData.endDate).toISOString() : undefined,
+            // Combine date and time
+            const fullStartDate = formData.startDate ? new Date(`${formData.startDate}T${formData.startTime}:00`) : null;
+            const fullEndDate = formData.endDate ? new Date(`${formData.endDate}T${formData.endTime}:00`) : null;
+
+            if (!fullStartDate || isNaN(fullStartDate.getTime())) {
+                throw new Error('Proszę podać poprawną datę rozpoczęcia.');
+            }
+
+            const { startDate, startTime, endDate, endTime, ...rest } = formData;
+
+            const createResponse = await api.post('/meetings', {
+                ...rest,
+                date: fullStartDate.toISOString(),
+                endDate: fullEndDate && !isNaN(fullEndDate.getTime()) ? fullEndDate.toISOString() : undefined,
             });
-            router.push('/dashboard');
+            const createdMeetingId = createResponse?.data?.id as string | undefined;
+
+            if (
+                createdMeetingId &&
+                autoImportStarterEntries &&
+                selectedStarterMeetingId.trim()
+            ) {
+                setIsImportingStarter(true);
+                try {
+                    const importResponse = await api.post(`/file-mapping/starter/import/${createdMeetingId}`, {
+                        externalMeetingId: selectedStarterMeetingId.trim(),
+                    });
+                    const importedCount = importResponse?.data?.count ?? 0;
+                    alert(`Utworzono zawody i zaimportowano ${importedCount} zgloszen ze Starter.`);
+                } catch {
+                    alert('Zawody utworzone, ale import Starter nie udal sie. Mozesz uruchomic import z poziomu Ustawien i Narzedzi.');
+                } finally {
+                    setIsImportingStarter(false);
+                }
+            }
+
+            router.push(createdMeetingId ? `/meetings/${createdMeetingId}` : '/dashboard');
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Nie udało się utworzyć zawodów');
+            setError(err.response?.data?.message || err.message || 'Nie udało się utworzyć zawodów');
         } finally {
             setLoading(false);
+            setIsImportingStarter(false);
         }
     };
 
@@ -66,6 +261,79 @@ export default function CreateMeetingPage() {
                 </CardHeader>
                 <CardContent className="p-8 pb-10">
                     <form onSubmit={handleSubmit} className="space-y-8">
+                        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <h3 className="text-xs font-black text-slate-600 uppercase tracking-widest">
+                                    Starter PZLA (Opcjonalnie)
+                                </h3>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 px-3 text-[11px] font-bold border-slate-200"
+                                    onClick={() => setShowStarterImport((v) => !v)}
+                                >
+                                    {showStarterImport ? 'Ukryj' : 'Polacz i wypelnij'}
+                                </Button>
+                            </div>
+
+                            {showStarterImport && (
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                        <Input
+                                            value={starterEmail}
+                                            onChange={(e) => setStarterEmail(e.target.value)}
+                                            placeholder="Email konta Starter"
+                                            className="h-10 border-slate-200 md:col-span-2"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-10 border-slate-200 font-bold"
+                                            onClick={fetchStarterMeetings}
+                                            disabled={isLoadingStarterMeetings}
+                                        >
+                                            {isLoadingStarterMeetings ? 'Pobieranie...' : 'Pobierz imprezy'}
+                                        </Button>
+                                    </div>
+
+                                    {starterMeetings.length > 0 && (
+                                        <div className="space-y-2">
+                                            <select
+                                                className="w-full h-10 border border-slate-200 rounded-xl px-3 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                                                value={selectedStarterMeetingId}
+                                                onChange={(e) => setSelectedStarterMeetingId(e.target.value)}
+                                            >
+                                                {starterMeetings.map((meeting) => (
+                                                    <option key={meeting.id} value={meeting.id}>
+                                                        {meeting.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+
+                                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    className="h-9 border-slate-200 font-bold"
+                                                    onClick={applyStarterMeetingToForm}
+                                                >
+                                                    Wypelnij formularz danymi imprezy
+                                                </Button>
+                                                <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={autoImportStarterEntries}
+                                                        onChange={(e) => setAutoImportStarterEntries(e.target.checked)}
+                                                    />
+                                                    Po utworzeniu od razu importuj zgloszenia
+                                                </label>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
                         {/* Podstawowe Informacje */}
                         <div className="space-y-4">
                             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
@@ -108,6 +376,15 @@ export default function CreateMeetingPage() {
                                         <option value="TEST">Zawody Testowe</option>
                                     </select>
                                 </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">Domtel Online (opcjonalnie)</label>
+                                    <Input
+                                        value={formData.domtelMeetingCode}
+                                        onChange={(e) => setFormData({ ...formData, domtelMeetingCode: e.target.value })}
+                                        placeholder="Kod imprezy (np. p98a) lub pełny URL z online.domtel-sport.pl"
+                                        className="h-11 border-slate-200 focus:ring-blue-500 rounded-xl"
+                                    />
+                                </div>
                             </div>
                         </div>
 
@@ -119,27 +396,31 @@ export default function CreateMeetingPage() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide text-blue-600">Start zawodów *</label>
-                                    <div className="relative">
-                                        <Input
-                                            type="datetime-local"
-                                            value={formData.date}
-                                            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                                            className="h-11 border-slate-200 focus:ring-blue-500 rounded-xl pl-10"
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <DatePicker
+                                            value={formData.startDate}
+                                            onChange={(val) => setFormData({ ...formData, startDate: val })}
+                                            placeholder="Data startu"
                                             required
                                         />
-                                        <Calendar className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
+                                        <TimePicker
+                                            value={formData.startTime}
+                                            onChange={(val: string) => setFormData({ ...formData, startTime: val })}
+                                        />
                                     </div>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">Koniec zawodów</label>
-                                    <div className="relative">
-                                        <Input
-                                            type="datetime-local"
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <DatePicker
                                             value={formData.endDate}
-                                            onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                                            className="h-11 border-slate-200 focus:ring-blue-500 rounded-xl pl-10"
+                                            onChange={(val) => setFormData({ ...formData, endDate: val })}
+                                            placeholder="Data końca"
                                         />
-                                        <Clock className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
+                                        <TimePicker
+                                            value={formData.endTime}
+                                            onChange={(val: string) => setFormData({ ...formData, endTime: val })}
+                                        />
                                     </div>
                                 </div>
                                 <div className="md:col-span-2">
@@ -151,8 +432,8 @@ export default function CreateMeetingPage() {
                                                 type="button"
                                                 onClick={() => setFormData({ ...formData, status })}
                                                 className={`h-11 rounded-xl text-xs font-black uppercase transition-all ${formData.status === status
-                                                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-                                                        : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
+                                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                                                    : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
                                                     }`}
                                             >
                                                 {status === 'DRAFT' ? 'Robocze' : status === 'SCHEDULED' ? 'Zaplanowane' : 'Otwarte'}
@@ -238,10 +519,10 @@ export default function CreateMeetingPage() {
                             </Button>
                             <Button
                                 type="submit"
-                                disabled={loading}
+                                disabled={loading || isImportingStarter}
                                 className="h-12 px-10 bg-blue-600 hover:bg-blue-700 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-blue-200 transition-all active:scale-95"
                             >
-                                {loading ? 'Przetwarzanie...' : 'Zapisz i kontynuuj'}
+                                {loading || isImportingStarter ? 'Przetwarzanie...' : 'Zapisz i kontynuuj'}
                             </Button>
                         </div>
                     </form>

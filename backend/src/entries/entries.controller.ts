@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { EntriesService } from './entries.service';
 import { CreateEntryDto } from './dto/create-entry.dto';
 import { UpdateEntryDto } from './dto/update-entry.dto';
@@ -9,7 +19,7 @@ import { Role } from '@prisma/client';
 
 @Controller('entries')
 export class EntriesController {
-  constructor(private readonly entriesService: EntriesService) { }
+  constructor(private readonly entriesService: EntriesService) {}
 
   @Post()
   create(@Body() createEntryDto: CreateEntryDto) {

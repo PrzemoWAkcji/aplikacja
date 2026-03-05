@@ -2,7 +2,7 @@ import axios from 'axios';
 import { useAuthStore } from '../store/auth-store';
 
 const api = axios.create({
-    baseURL: 'http://localhost:3000', // Adjust if backend runs on a different port or host
+    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
 });
 
 api.interceptors.request.use((config) => {

@@ -4,13 +4,14 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../lib/api';
 import Link from 'next/link';
 import { Button } from '../components/ui/button';
-import { Trophy, Calendar, MapPin, ChevronRight, LayoutDashboard, LogIn } from 'lucide-react';
+import { Calendar, MapPin, ChevronRight, LogIn, ExternalLink } from 'lucide-react';
 
 interface Meeting {
   id: string;
   name: string;
   date: string;
   location: string;
+  domtelOnlineUrl?: string;
 }
 
 export default function Home() {
@@ -27,23 +28,14 @@ export default function Home() {
       {/* Top Navigation */}
       <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <Trophy className="h-5 w-5 text-white" />
-            </div>
-            <span className="font-black text-xl tracking-tighter text-slate-800">ATHLETICS<span className="text-blue-600">PRO</span></span>
+          <div className="flex items-center h-full">
+            <img src="/it-timing-logo.png" alt="IT TIMING" className="h-10 w-auto object-contain" />
           </div>
           <div className="flex gap-4">
             <Link href="/login">
               <Button variant="ghost" size="sm" className="font-bold text-slate-600">
                 <LogIn className="h-4 w-4 mr-2" />
-                Panel Sędziowski
-              </Button>
-            </Link>
-            <Link href="/dashboard">
-              <Button size="sm" className="bg-blue-600 hover:bg-blue-700 font-bold shadow-lg shadow-blue-200 transition-all active:scale-95">
-                <LayoutDashboard className="h-4 w-4 mr-2" />
-                Dashboard
+                Logowanie
               </Button>
             </Link>
           </div>
@@ -93,14 +85,14 @@ export default function Home() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {meetings?.map((meeting) => (
-              <div key={meeting.id} className="group relative bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200/50 border border-slate-100 transition-all hover:-translate-y-2 hover:shadow-2xl hover:shadow-blue-200/40">
-                <div className="space-y-6">
+              <div key={meeting.id} className="group relative h-full min-h-[460px] bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200/50 border border-slate-100 transition-all hover:-translate-y-2 hover:shadow-2xl hover:shadow-blue-200/40">
+                <div className="flex h-full flex-col space-y-6">
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-blue-600 text-[10px] font-black uppercase tracking-widest">
                       <Calendar className="h-3 w-3" />
                       {new Date(meeting.date).toLocaleDateString('pl-PL', { day: 'numeric', month: 'long' })}
                     </div>
-                    <h3 className="text-2xl font-bold text-slate-800 leading-tight group-hover:text-blue-600 transition-colors">
+                    <h3 className="min-h-[108px] text-2xl font-bold text-slate-800 leading-tight group-hover:text-blue-600 transition-colors">
                       {meeting.name}
                     </h3>
                   </div>
@@ -110,13 +102,21 @@ export default function Home() {
                     {meeting.location}
                   </div>
 
-                  <div className="pt-4 flex flex-col gap-3">
+                  <div className="mt-auto pt-4 flex flex-col gap-3">
                     <Link href={`/results/${meeting.id}`} className="w-full">
                       <Button className="w-full bg-slate-900 hover:bg-black rounded-xl h-12 font-bold flex items-center justify-between px-6 transition-all group-hover:scale-[1.02]">
                         Wyniki Live
                         <ChevronRight className="h-4 w-4" />
                       </Button>
                     </Link>
+                    {meeting.domtelOnlineUrl && (
+                      <a href={meeting.domtelOnlineUrl} target="_blank" rel="noreferrer" className="w-full">
+                        <Button variant="outline" className="w-full h-12 font-bold text-slate-600 hover:text-sky-700 hover:bg-sky-50 border-slate-200 hover:border-sky-200">
+                          <ExternalLink className="h-4 w-4 mr-2" />
+                          Domtel Online
+                        </Button>
+                      </a>
+                    )}
                     <Link href={`/meetings/${meeting.id}/register`} className="w-full">
                       <Button variant="ghost" className="w-full h-12 font-bold text-slate-500 hover:text-blue-600 hover:bg-blue-50">
                         Zapisz się do zawodów
