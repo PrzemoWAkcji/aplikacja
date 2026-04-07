@@ -132,11 +132,15 @@ interface Result {
     round6Wind?: number | null;
     points?: number | null;
     isOverall?: boolean;
+    isDNF?: boolean;
     totalPoints?: number;
     details?: {
         eventCode: string;
+        eventName: string;
         performance: string;
         points: number;
+        cumulativeAfter: number;
+        status?: string;
     }[];
     bestResult?: string;
     entry: {
@@ -402,7 +406,11 @@ export default function ResultsView({ meetingId, event }: ResultsViewProps) {
 
                                         <td className="px-6 py-4 whitespace-nowrap text-right">
                                             {result.isOverall ? (
-                                                <span className="text-[17px] font-black font-mono text-blue-700">{result.totalPoints}</span>
+                                                result.isDNF ? (
+                                                    <span className="text-[15px] font-black font-mono text-red-600">DNF</span>
+                                                ) : (
+                                                    <span className="text-[17px] font-black font-mono text-blue-700">{result.totalPoints}</span>
+                                                )
                                             ) : (
                                                 <input
                                                     key={`${result.id}-main-result-${((isField || isVertical) ? result.bestResult : result.time) || ''}`}
@@ -421,15 +429,23 @@ export default function ResultsView({ meetingId, event }: ResultsViewProps) {
                                             )}
                                         </td>
                                         {result.isOverall ? (
-                                            <td className="px-6 py-4 whitespace-nowrap text-right text-[10px] text-slate-400">
-                                                <div className="flex flex-col gap-1 items-end">
-                                                    {(result.details || []).map((det: any, idx: number) => (
-                                                        <div key={idx} className="flex gap-2">
-                                                            <span className="font-bold">{det.eventCode}:</span>
-                                                            <span>{det.performance}</span>
-                                                            <span className="text-blue-600 font-bold">({det.points} pkt)</span>
-                                                        </div>
-                                                    ))}
+                                            <td className="px-6 py-4 text-right text-[10px] text-slate-400">
+                                                <div className="flex flex-col gap-0.5 items-end">
+                                                    {(result.details || []).map((det: any, idx: number) => {
+                                                        const isDNFDet = det.status && ['DNS','DNF','DQ','NM'].includes(det.status);
+                                                        return (
+                                                            <div key={idx} className={`flex gap-2 items-center ${isDNFDet ? 'text-red-500' : ''}`}>
+                                                                <span className="font-bold text-slate-500">{det.eventCode}:</span>
+                                                                <span className={isDNFDet ? 'font-bold' : ''}>{det.performance}</span>
+                                                                {!isDNFDet && det.points > 0 && (
+                                                                    <>
+                                                                        <span className="text-blue-600 font-bold">({det.points})</span>
+                                                                        <span className="text-slate-300">Σ{det.cumulativeAfter}</span>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </td>
                                         ) : (

@@ -5,6 +5,8 @@ WORKDIR /app
 
 # Set DATABASE_URL for build time (required by Prisma 6.x generate)
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+# Skip Chromium download during npm install — używamy systemowego Chromium w produkcji
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 COPY package*.json ./
 RUN npm install
@@ -17,6 +19,20 @@ RUN npm run build
 FROM node:20-alpine
 
 WORKDIR /app
+
+# Chromium do Puppeteer (PNG export grafik broadcast)
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    font-noto
+
+# Wskaż Puppeteer na systemowy Chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules

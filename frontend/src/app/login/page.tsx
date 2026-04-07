@@ -28,23 +28,19 @@ export default function LoginPage() {
         setError('');
 
         try {
-            // 1. Zaloguj się i pobierz token
+            // 1. Zaloguj się i pobierz oba tokeny
             const response = await api.post('/auth/login', { email, password });
-            const { access_token } = response.data;
+            const { access_token, refresh_token } = response.data;
 
-            // 2. Ustaw sam token w store (bez danych użytkownika jeszcze)
-            // To pozwoli interceptorowi w api.ts dodać ten token do kolejnego żądania
-            setAuth(access_token, null as any);
-
-            // 3. Pobierz profil (PRZEKAZUJEMY TOKEN RĘCZNIE, ABY UNIKNĄĆ OPÓŹNIEŃ STORE)
+            // 2. Pobierz profil (przekazujemy token ręcznie, aby uniknąć opóźnień store)
             const profileResponse = await api.get('/auth/profile', {
                 headers: {
                     Authorization: `Bearer ${access_token}`
                 }
             });
 
-            // 4. Zaktualizuj store o pełne dane użytkownika
-            setAuth(access_token, profileResponse.data);
+            // 3. Ustaw pełne dane w store (token, refresh token, dane użytkownika)
+            setAuth(access_token, refresh_token, profileResponse.data);
 
             router.push('/dashboard');
         } catch (err: any) {

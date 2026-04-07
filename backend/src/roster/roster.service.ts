@@ -5,6 +5,8 @@ import { RosterEntryDto, RosterResultDto } from './roster.dto';
 import * as Papa from 'papaparse';
 import { Readable } from 'stream';
 import { EntryStatus } from '@prisma/client';
+import * as https from 'https';
+import * as http from 'http';
 
 @Injectable()
 export class RosterService {
@@ -643,6 +645,237 @@ export class RosterService {
     }
 
     return event;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // PZLA Starter import
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Fetch CSV from starter.pzla.pl and import entries into the meeting.
+   * URL pattern: https://starter.pzla.pl/zgloszenia_csv.php?LP_Impreza={lpImpreza}
+   */
+  async importFromPzlaStarterUrl(
+    meetingId: string,
+    lpImpreza: number,
+  ): Promise<{ imported: number; updated: number; events: number }> {
+    const url = `https://starter.pzla.pl/zgloszenia_csv.php?LP_Impreza=${lpImpreza}`;
+    const csvContent = await this.fetchUrl(url);
+    return this.importFromPzlaCsvContent(meetingId, csvContent);
+  }
+
+  /**
+   * Parse and import an already-fetched PZLA Starter CSV content.
+   */
+  async importFromPzlaCsvContent(
+    meetingId: string,
+    csvContent: string,
+  ): Promise<{ imported: number; updated: number; events: number }> {
+    const rows = await this.parsePzlaCsv(csvContent);
+
+    if (!rows || rows.length === 0) {
+      throw new BadRequestException(
+        'Brak danych do zaimportowania lub nieprawidłowy format CSV ze Startera PZLA.',
+      );
+    }
+
+    let imported = 0;
+    let updated = 0;
+    const eventIdsSeen = new Set<string>();
+
+    for (const row of rows) {
+      try {
+        const event = await this.findOrCreateEventFromPzla(meetingId, row);
+        eventIdsSeen.add(event.id);
+
+        const bib = row.nrStart?.trim() || null;
+        const firstName = row.imie?.trim() || '';
+        const lastName = row.nazwisko?.trim() || '';
+        const athleteName = `${firstName} ${lastName}`.trim();
+        const gender = this.mapGender(row.plec);
+
+        // Parse date of birth: "YYYY-MM-DD" or "DD.MM.YYYY"
+        let dateOfBirth: Date | null = null;
+        if (row.dataUr) {
+          const d = row.dataUr.trim();
+          if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+            dateOfBirth = new Date(d);
+          } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(d)) {
+            const [dd, mm, yyyy] = d.split('.');
+            dateOfBirth = new Date(`${yyyy}-${mm}-${dd}`);
+          }
+        }
+
+        const yearOfBirth = dateOfBirth
+          ? dateOfBirth.getFullYear()
+          : null;
+
+        const pzlaLicence = row.licencjaPZLA?.trim() || null;
+        const nrZawodnika = row.nrZawodnika?.trim() || null;
+
+        const entryData: any = {
+          athleteName,
+          firstName,
+          lastName,
+          bib,
+          club: row.klub?.trim() || null,
+          countryCode: 'POL',
+          dateOfBirth,
+          yearOfBirth,
+          gender,
+          pb: row.pb?.trim() || null,
+          sb: row.sb?.trim() || null,
+          heat: row.seria ? parseInt(row.seria, 10) || null : null,
+          lane: row.tor ? parseInt(row.tor, 10) || null : null,
+          // Store PZLA licence as tilastopajaId (reusing field for Polish ID)
+          tilastopajaId: pzlaLicence || nrZawodnika,
+          eventId: event.id,
+          status: EntryStatus.CONFIRMED,
+        };
+
+        // Deduplicate by bib+event or name+event
+        const existingEntry = await this.prisma.entry.findFirst({
+          where: {
+            eventId: event.id,
+            OR: [
+              ...(bib ? [{ bib }] : []),
+              { athleteName },
+            ],
+          },
+        });
+
+        if (existingEntry) {
+          const athlete = await this.entriesService.findOrCreateAthlete(entryData);
+          await this.prisma.entry.update({
+            where: { id: existingEntry.id },
+            data: { ...entryData, athleteId: athlete.id },
+          });
+          updated++;
+        } else {
+          await this.entriesService.create(entryData);
+          imported++;
+        }
+      } catch (err) {
+        console.error('PZLA import row error:', err);
+      }
+    }
+
+    return { imported, updated, events: eventIdsSeen.size };
+  }
+
+  private parsePzlaCsv(csvContent: string): Promise<any[]> {
+    // PZLA Starter uses semicolon delimiter and may have Windows-1250 encoding
+    // (already decoded by caller). Headers may have BOM.
+    return new Promise((resolve, reject) => {
+      Papa.parse(csvContent, {
+        delimiter: ';',
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (h) => this.mapPzlaHeader(h.replace(/^\uFEFF/, '').trim()),
+        complete: (results) => resolve(results.data as any[]),
+        error: (err: Error) => reject(err),
+      });
+    });
+  }
+
+  private mapPzlaHeader(raw: string): string {
+    const map: Record<string, string> = {
+      'Impreza': 'impreza',
+      'NrKonkur': 'nrKonkur',
+      'NazwaPZLA': 'plec',          // K / M / MIX
+      'Pełna nazwa': 'pelnaNazwa',
+      'Runda': 'runda',
+      'Seria': 'seria',
+      'Tor': 'tor',
+      'Miejsce': 'miejsce',
+      'NrStart': 'nrStart',
+      'Nazwisko': 'nazwisko',
+      'Imię': 'imie',
+      'DataUr': 'dataUr',
+      'Klub': 'klub',
+      'Woj': 'woj',
+      'Wynik': 'wynik',
+      'Wiatr': 'wiatr',
+      'PK': 'pk',
+      'SB': 'sb',
+      'PB': 'pb',
+      'NrZawodnika': 'nrZawodnika',
+      'Licencja PZLA': 'licencjaPZLA',
+      'Licencja ważność': 'licencjaWaznosc',
+      'Licencja OZLA': 'licencjaOZLA',
+      'Licencja OZLA ważność': 'licencjaOZLAWaznosc',
+      'NrLicencji Klub': 'nrLicencjiKlub',
+      'AktLic Klub': 'aktLicKlub',
+      'Uczelnia': 'uczelnia',
+      'Weryfikacja': 'weryfikacja',
+      'Weryfikacja elektr.': 'weryfikacjaElektr',
+      'TOKEN': 'token',
+      'skład': 'sklad',
+      'Sztafeta': 'sztafeta',
+      'OOM': 'oom',
+      'Kadra 2026': 'kadra',
+      'LDK!': 'ldk',
+      'DataAktualizacji': 'dataAktualizacji',
+      'Trener': 'trener',
+    };
+    return map[raw] ?? raw.toLowerCase().replace(/\s+/g, '_');
+  }
+
+  private async findOrCreateEventFromPzla(meetingId: string, row: any) {
+    const gender = this.mapGender(row.plec);
+    const fullName: string = (row.pelnaNazwa || '').trim();
+
+    // Try exact name match first
+    let event = await this.prisma.event.findFirst({
+      where: { meetingId, name: fullName, gender },
+    });
+
+    if (!event) {
+      // Fallback: name contains match
+      const allEvents = await this.prisma.event.findMany({ where: { meetingId } });
+      event = allEvents.find(
+        (e) =>
+          e.gender === gender &&
+          (e.name.toLowerCase().includes(fullName.toLowerCase()) ||
+            fullName.toLowerCase().includes(e.name.toLowerCase())),
+      ) || null;
+    }
+
+    if (!event) {
+      // Extract code from Pełna nazwa heuristically or use NrKonkur
+      const code = row.nrKonkur?.trim() || 'PZLA';
+      event = await this.prisma.event.create({
+        data: {
+          name: fullName || `Konkurencja ${code}`,
+          code,
+          gender,
+          meetingId,
+        },
+      });
+    }
+
+    return event;
+  }
+
+  private fetchUrl(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const client = url.startsWith('https') ? https : http;
+      client.get(url, { rejectUnauthorized: false } as any, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          // Try to decode as UTF-8 first, fallback to latin2/windows-1250
+          let text = buf.toString('utf8');
+          // Heuristic: if result contains replacement chars, try latin1
+          if (text.includes('\ufffd')) {
+            text = buf.toString('latin1');
+          }
+          resolve(text);
+        });
+        res.on('error', reject);
+      }).on('error', reject);
+    });
   }
 
   private findBestResult(rounds: (string | undefined)[]): string | null {

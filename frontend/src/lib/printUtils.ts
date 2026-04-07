@@ -824,7 +824,7 @@ export const generateTimetableHTML = (meeting: any, events: any[]) => {
 
 export const printBatch = async (meetingId: string, type: 'START_LIST' | 'PROTOCOL') => {
     try {
-        const response = await api.get(`/meetings/${meetingId}/print-data`);
+        const response = await api.get(`/meetings/private/${meetingId}/print-data`);
         const meeting = response.data;
         if (!meeting || !meeting.events || meeting.events.length === 0) {
             alert('Brak danych do wydruku.');

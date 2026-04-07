@@ -1,30 +1,96 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
     container_name: aplikacja-postgres
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret_password_here}
       POSTGRES_DB: aplikacja_db
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - aplikacja-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d aplikacja_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     container_name: aplikacja-redis
-    ports:
-      - "6379:6379"
+    command: >
+      sh -c "if [ -n \"$$REDIS_PASSWORD\" ]; then
+               redis-server --requirepass $$REDIS_PASSWORD;
+             else
+               redis-server;
+             fi"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
     networks:
       - aplikacja-network
-      
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: aplikacja-backend
+    container_name: aplikacja-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      FRONTEND_URL: http://aplikacja-frontend:3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ${LYNX_DATA_PATH:-./lynx_data}:/app/lynx_data
+    networks:
+      - aplikacja-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* są wypalane w JS podczas buildu — zmiana wymaga rebuild
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+    image: aplikacja-frontend
+    container_name: aplikacja-frontend
+    environment:
+      NODE_ENV: production
+    ports:
+      - "3001:3000"
+    networks:
+      - aplikacja-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

@@ -70,7 +70,11 @@ model Meeting {
   organizerLogo String?
   sponsorLogos  String[] // URLs or paths to sponsor logos
   syncOnlineEventNames Boolean @default(false)
+  teamScoringEnabled Boolean @default(false)
+  teamScoringTable   String? // JSON array of points by place, e.g. [15,12,10,9,8,8,7,7,6,5,4,3,2,2,2,2]
   events        Event[]
+  activityLogs  ActivityLog[]
+  records       Record[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 }
@@ -95,6 +99,10 @@ model Event {
   finalInterval  Int?      @default(5)
   finalStartTimes String?   // JSON array of ISO strings
   advancementRule String?  // e.g. "8 to final" or "3Q + 2q"
+  advPerHeat      Int?     // Q: how many athletes advance per heat by place
+  advByTime       Int?     // q: how many additional athletes advance by best time
+  weather         String?  // JSON: { temperature, humidity, conditions, notes }
+  referee         String?  // Judge/referee name for this event
   meeting        Meeting  @relation(fields: [meetingId], references: [id])
   meetingId      String
   entries        Entry[]
@@ -192,6 +200,9 @@ model Result {
   // Status
   status         String   @default("OK") // OK, DNS, DNF, DQ, NM
   points         Int?
+
+  // Split times (intermediate times for distance events)
+  splits         String?  // JSON array: [{ distance: 200, time: "22.45" }, ...]
   
   // Relations
   entry          Entry    @relation(fields: [entryId], references: [id])
@@ -201,6 +212,41 @@ model Result {
   updatedAt      DateTime @updatedAt
 }
 
+
+model Record {
+  id          String   @id @default(uuid())
+  meetingId   String?  // null = global record
+  season      String   // "L" = outdoor, "Z" = indoor
+  category    String   // Open, U23, U20, U18, U16, U14
+  recordType  String   // "PR" = Poland Record, "ER" = Europe, "WR" = World, "MR" = Meeting record
+  eventCode   String   // competition code, e.g. "100m", "LJ"
+  gender      String   // M, K
+  performance String   // result value, e.g. "9.86" or "1:20.15"
+  athleteName String?
+  club        String?
+  location    String?
+  date        DateTime?
+  wind        String?
+
+  meeting     Meeting? @relation(fields: [meetingId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  meetingId   String
+  actorId     String?
+  actorEmail  String?
+  action      String
+  entityType  String
+  entityId    String?
+  message     String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  meeting     Meeting  @relation(fields: [meetingId], references: [id])
+}
 
 model Athlete {
   id             String    @id @default(uuid())

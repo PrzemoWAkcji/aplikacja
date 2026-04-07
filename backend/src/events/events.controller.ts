@@ -79,4 +79,19 @@ export class EventsController {
   splitMultiEvent(@Param('id') id: string) {
     return this.eventsService.splitMultiEvent(id);
   }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Post(':id/advance')
+  generateAdvancement(
+    @Param('id') id: string,
+    @Body() body: { targetEventId: string; advPerHeat: number; advByTime: number },
+  ) {
+    return this.eventsService.generateAdvancement(
+      id,
+      body.targetEventId,
+      body.advPerHeat ?? 0,
+      body.advByTime ?? 0,
+    );
+  }
 }

@@ -2,6 +2,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
@@ -183,7 +184,13 @@ export class MeetingsService {
     };
   }
 
-  update(id: string, updateMeetingDto: UpdateMeetingDto) {
+  async update(id: string, updateMeetingDto: UpdateMeetingDto, requestingUserId: string, requestingUserRole: string) {
+    const meeting = await this.prisma.meeting.findUnique({ where: { id } });
+    if (!meeting) throw new NotFoundException('Meeting not found');
+    if (requestingUserRole !== 'ADMIN' && meeting.organizerId !== requestingUserId) {
+      throw new ForbiddenException('Brak dostępu do tego meetingu');
+    }
+
     const { date, endDate, domtelMeetingCode, ...rest } = updateMeetingDto;
     const data: any = { ...rest };
     if (date) {
@@ -202,7 +209,12 @@ export class MeetingsService {
     });
   }
 
-  async remove(id: string) {
+  async remove(id: string, requestingUserId: string, requestingUserRole: string) {
+    const meeting = await this.prisma.meeting.findUnique({ where: { id } });
+    if (!meeting) throw new NotFoundException('Meeting not found');
+    if (requestingUserRole !== 'ADMIN' && meeting.organizerId !== requestingUserId) {
+      throw new ForbiddenException('Brak dostępu do tego meetingu');
+    }
     // Cascade delete children manually since schema lacks onDelete: Cascade
     await this.deleteAllEvents(id);
 
@@ -430,13 +442,10 @@ export class MeetingsService {
     };
   }
 
-  async writeFinishLynxFilesToDisk(id: string, rawPath?: string) {
+  async writeFinishLynxFilesToDisk(id: string) {
     const exportData = await this.generateFinishLynxFiles(id);
-    const exportDir = this.resolveFinishLynxExportDir(
-      rawPath && rawPath.trim()
-        ? rawPath
-        : process.env.FINISHLYNX_EXPORT_DIR,
-    );
+    // Ścieżka eksportu pochodzi wyłącznie ze zmiennej środowiskowej
+    const exportDir = this.resolveFinishLynxExportDir(process.env.FINISHLYNX_EXPORT_DIR);
     const evtPath = path.join(exportDir, 'Lynx.evt');
     const schPath = path.join(exportDir, 'Lynx.sch');
     const mapPath = path.join(exportDir, 'Lynx.map.json');
@@ -991,11 +1000,101 @@ export class MeetingsService {
   }
 
   getUploadedFile(filename: string, res: Response) {
-    const filepath = path.join(this.getUploadsPath(), filename);
+    // Sanityzacja: odrzuć separatory ścieżki i sekwencje traversal
+    const safeName = path.basename(filename);
+    if (!safeName || safeName !== filename || /[/\\]/.test(filename)) {
+      (res as any).status(400).send('Invalid filename');
+      return;
+    }
+    const uploadsDir = this.getUploadsPath();
+    const filepath = path.join(uploadsDir, safeName);
+    // Weryfikacja że plik leży w dozwolonym katalogu (ochrona przed edge-case)
+    if (!filepath.startsWith(uploadsDir + path.sep) && filepath !== uploadsDir) {
+      (res as any).status(403).send('Forbidden');
+      return;
+    }
     if (fs.existsSync(filepath)) {
       res.sendFile(filepath);
     } else {
-      res.status(404).send('File not found');
+      (res as any).status(404).send('File not found');
     }
+  }
+
+  // Default scoring table from PZLA/MDB: place 1..16 → points
+  private readonly DEFAULT_SCORING_TABLE = [
+    15, 12, 10, 9, 8, 8, 7, 7, 6, 5, 4, 3, 2, 2, 2, 2,
+  ];
+
+  async getTeamStandings(meetingId: string) {
+    const meeting = await (this.prisma as any).meeting.findUnique({
+      where: { id: meetingId },
+      select: { teamScoringEnabled: true, teamScoringTable: true },
+    });
+
+    if (!meeting) throw new NotFoundException('Meeting not found');
+
+    const scoringTable: number[] = meeting.teamScoringTable
+      ? JSON.parse(meeting.teamScoringTable)
+      : this.DEFAULT_SCORING_TABLE;
+
+    // Fetch all entries with results for this meeting (via events)
+    const entries = await (this.prisma as any).entry.findMany({
+      where: {
+        event: { meetingId },
+        status: { not: 'SCRATCHED' },
+      },
+      select: {
+        club: true,
+        athleteName: true,
+        gender: true,
+        event: { select: { name: true, code: true, gender: true } },
+        result: { select: { place: true, placeGender: true, status: true } },
+      },
+    });
+
+    // Map: club → { totalPoints, athletes: [...] }
+    const clubMap = new Map<
+      string,
+      { totalPoints: number; details: { eventName: string; athleteName: string; place: number; points: number }[] }
+    >();
+
+    for (const entry of entries) {
+      const result = entry.result;
+      if (!result || !result.place || result.status === 'DNS' || result.status === 'DQ' || result.status === 'NM') {
+        continue;
+      }
+
+      const place = result.place;
+      const points = place >= 1 && place <= scoringTable.length
+        ? scoringTable[place - 1]
+        : 0;
+
+      if (points === 0) continue;
+
+      const club = (entry.club || 'Brak klubu').trim();
+      if (!clubMap.has(club)) {
+        clubMap.set(club, { totalPoints: 0, details: [] });
+      }
+
+      const clubData = clubMap.get(club)!;
+      clubData.totalPoints += points;
+      clubData.details.push({
+        eventName: entry.event.name,
+        athleteName: entry.athleteName,
+        place,
+        points,
+      });
+    }
+
+    const standings = Array.from(clubMap.entries())
+      .map(([club, data]) => ({ club, ...data }))
+      .sort((a, b) => b.totalPoints - a.totalPoints)
+      .map((row, idx) => ({ rank: idx + 1, ...row }));
+
+    return {
+      enabled: meeting.teamScoringEnabled,
+      scoringTable,
+      standings,
+    };
   }
 }

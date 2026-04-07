@@ -1,11 +1,12 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { jwtConstants } from './constants';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor() {
+  constructor(private readonly usersService: UsersService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -14,7 +15,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    console.log('JwtStrategy validate:', payload);
-    return { userId: payload.sub, email: payload.email, role: payload.role };
+    // Pobierz aktualną rolę z bazy — token nie może zawierać przestarzałej roli
+    const user = await this.usersService.findOne(payload.email);
+    if (!user) {
+      throw new UnauthorizedException('Konto nie istnieje lub zostało usunięte');
+    }
+    return { userId: user.id, email: user.email, role: user.role };
   }
 }

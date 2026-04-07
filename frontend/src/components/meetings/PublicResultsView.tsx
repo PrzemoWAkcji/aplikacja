@@ -42,12 +42,15 @@ interface Result {
     status: string;
     points?: number | null;
     isOverall?: boolean;
+    isDNF?: boolean;
     totalPoints?: number;
     details?: {
         eventName: string;
         eventCode: string;
         performance: string;
         points: number;
+        cumulativeAfter: number;
+        status?: string;
     }[];
     verticalJSON?: string;
     fieldJSON?: string;
@@ -64,6 +67,7 @@ interface Result {
     round6Result?: string;
     round6Wind?: number | null;
     bestResult?: string;
+    splits?: string; // JSON: [{distance, time}]
     entry: {
         athleteName: string;
         bib: string;
@@ -322,14 +326,53 @@ function ResultTableRow({ result, rank, isField, isVertical, isHorizontalJump, s
             )}
             <td className="px-5 py-4 text-right">
                 <div className="flex flex-col items-end">
-                    <span className={`text-[17px] font-black font-mono leading-none tracking-tighter ${result.isOverall ? 'text-blue-700' : (isStartList ? 'text-slate-300 italic text-sm' : (isMedal ? 'text-slate-900' : 'text-blue-700'))
-                        }`}>
-                        {result.isOverall ? result.totalPoints : (isStartList ? 'Brak wyniku' : (result.time || result.bestResult || '-'))}
-                    </span>
-                    {!isStartList && !result.isOverall && showGlobalWind && result.wind !== undefined && result.wind !== null && (
-                        <span className="text-[10px] font-bold text-slate-400 mt-1">
-                            {result.wind > 0 ? `+${result.wind}` : result.wind} m/s
-                        </span>
+                    {result.isOverall ? (
+                        result.isDNF ? (
+                            <span className="text-[15px] font-black font-mono text-red-600">DNF</span>
+                        ) : (
+                            <>
+                                <span className="text-[17px] font-black font-mono leading-none tracking-tighter text-blue-700">
+                                    {result.totalPoints}
+                                </span>
+                                {(result.details || []).length > 0 && (
+                                    <div className="flex flex-col gap-0.5 items-end mt-1">
+                                        {(result.details || []).map((det: any, idx: number) => {
+                                            // DNS / DQ = dyskwalifikacja (czerwony)
+                                            const isDisqualified = det.status && ['DNS', 'DQ'].includes(det.status);
+                                            // NM / DNF = brak wyniku w tej konkurencji, ale zawodnik kontynuuje (pomarańczowy)
+                                            const isZeroPts = det.status && ['NM', 'DNF'].includes(det.status);
+                                            const colorClass = isDisqualified
+                                                ? 'text-red-500 font-bold'
+                                                : isZeroPts
+                                                ? 'text-amber-500 font-semibold'
+                                                : det.status === null
+                                                ? 'text-slate-300 italic'   // jeszcze nie rywalizował
+                                                : 'text-slate-500';
+                                            return (
+                                                <span key={idx} className={`text-[9px] font-mono ${colorClass}`}>
+                                                    {idx + 1}. {det.eventCode}: {det.performance}
+                                                    {!isDisqualified && !isZeroPts && det.status !== null && (
+                                                        <> <span className="text-blue-500 font-bold">+{det.points}</span>
+                                                        <span className="text-slate-400"> ={det.cumulativeAfter}</span></>
+                                                    )}
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </>
+                        )
+                    ) : (
+                        <>
+                            <span className={`text-[17px] font-black font-mono leading-none tracking-tighter ${isStartList ? 'text-slate-300 italic text-sm' : (isMedal ? 'text-slate-900' : 'text-blue-700')}`}>
+                                {isStartList ? 'Brak wyniku' : (result.time || result.bestResult || '-')}
+                            </span>
+                            {!isStartList && showGlobalWind && result.wind !== undefined && result.wind !== null && (
+                                <span className="text-[10px] font-bold text-slate-400 mt-1">
+                                    {result.wind > 0 ? `+${result.wind}` : result.wind} m/s
+                                </span>
+                            )}
+                        </>
                     )}
                 </div>
             </td>
@@ -339,6 +382,26 @@ function ResultTableRow({ result, rank, isField, isVertical, isHorizontalJump, s
                 </td>
             )}
             </tr>
+            {!isStartList && !result.isOverall && result.splits && (() => {
+                let splitArr: { distance: number | string; time: string }[] = [];
+                try { splitArr = JSON.parse(result.splits); } catch { splitArr = []; }
+                if (splitArr.length === 0) return null;
+                return (
+                    <tr className="bg-sky-50/30">
+                        <td colSpan={technicalColSpan} className="px-5 pb-2 pt-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[9px] font-black text-sky-600 uppercase tracking-widest shrink-0">Międzyczasy:</span>
+                                {splitArr.map((s, idx) => (
+                                    <span key={idx} className="flex items-center gap-1 text-[11px] font-mono bg-sky-100 text-sky-800 px-2 py-0.5 rounded">
+                                        <span className="font-bold text-sky-500">{s.distance}m</span>
+                                        <span className="font-black">{s.time}</span>
+                                    </span>
+                                ))}
+                            </div>
+                        </td>
+                    </tr>
+                );
+            })()}
             {shouldShowAttempts && (
                 <tr className="bg-slate-50/60">
                     <td colSpan={technicalColSpan} className="px-4 pb-4 pt-1">

@@ -24,6 +24,8 @@ interface Event {
     finalInterval?: number;
     finalStartTimes?: string;
     advancementRule?: string;
+    referee?: string;
+    weather?: string;
     entries?: { heat: number | null }[];
 }
 

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Users, FileText, ClipboardList, ArrowUpDown, Trash, LayoutGrid, Zap, RotateCcw, Printer, CloudDownload, Search, ExternalLink, Settings, Calendar } from 'lucide-react';
+import { X, Users, FileText, ClipboardList, ArrowUpDown, Trash, LayoutGrid, Zap, RotateCcw, Printer, CloudDownload, Search, ExternalLink, Settings, Calendar, ChevronsRight } from 'lucide-react';
+import { getAgeCategory, CATEGORY_COLORS } from '../../lib/ageCategory';
 import api from '../../lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
@@ -214,6 +215,23 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
             alert('Wielobój został rozpisany na poszczególne konkurencje.');
         },
         onError: () => alert('Błąd podczas rozpisywania wieloboju.')
+    });
+
+    const [advTargetEventId, setAdvTargetEventId] = useState('');
+    const [advPerHeat, setAdvPerHeat] = useState(2);
+    const [advByTime, setAdvByTime] = useState(2);
+
+    const advanceMutation = useMutation({
+        mutationFn: async () => api.post(`/events/${selectedEventId}/advance`, {
+            targetEventId: advTargetEventId,
+            advPerHeat,
+            advByTime,
+        }),
+        onSuccess: (res) => {
+            queryClient.invalidateQueries({ queryKey: ['entries'] });
+            alert(res.data?.message || 'Awanse wygenerowane.');
+        },
+        onError: () => alert('Błąd podczas generowania awansów.'),
     });
 
     const isField = isFieldEvent(eventName);
@@ -758,7 +776,9 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                         finalInterval: event?.finalInterval || 5,
                                         finalStartTimes: event?.finalStartTimes || '[]',
                                         advancementRule: event?.advancementRule || '',
-                                        completedTime: event?.completedTime || ''
+                                        completedTime: event?.completedTime || '',
+                                        weather: event?.weather || '',
+                                        referee: event?.referee || ''
                                     });
                                     setIsModelModalOpen(true);
                                 }}
@@ -786,6 +806,64 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                         </div>
                     )}
                 </div>
+
+                {/* ADVANCEMENT PANEL */}
+                {selectedEventId && meeting?.events?.length > 1 && (
+                    <div className="mb-4 rounded-xl border border-orange-100 bg-orange-50/40 p-4">
+                        <h3 className="text-xs font-black uppercase tracking-widest text-orange-700 mb-3 flex items-center gap-1.5">
+                            <ChevronsRight className="h-3.5 w-3.5" />
+                            Awanse Q/q — przenieś zawodników do następnej rundy
+                        </h3>
+                        <div className="flex flex-wrap gap-3 items-end">
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-orange-700 uppercase tracking-wider">Konkurencja docelowa</label>
+                                <select
+                                    className="h-8 rounded-md border border-orange-200 bg-white px-2 text-xs font-medium text-slate-700 min-w-[200px]"
+                                    value={advTargetEventId}
+                                    onChange={(e) => setAdvTargetEventId(e.target.value)}
+                                >
+                                    <option value="">— wybierz —</option>
+                                    {(meeting.events as any[])
+                                        .filter((ev: any) => ev.id !== selectedEventId)
+                                        .map((ev: any) => (
+                                            <option key={ev.id} value={ev.id}>{ev.name}</option>
+                                        ))
+                                    }
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-orange-700 uppercase tracking-wider">Q (awans za miejsce)</label>
+                                <input
+                                    type="number" min={0} max={20}
+                                    className="h-8 w-16 rounded-md border border-orange-200 bg-white px-2 text-xs font-bold text-slate-700 text-center"
+                                    value={advPerHeat}
+                                    onChange={(e) => setAdvPerHeat(parseInt(e.target.value) || 0)}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-orange-700 uppercase tracking-wider">q (awans za czas)</label>
+                                <input
+                                    type="number" min={0} max={20}
+                                    className="h-8 w-16 rounded-md border border-orange-200 bg-white px-2 text-xs font-bold text-slate-700 text-center"
+                                    value={advByTime}
+                                    onChange={(e) => setAdvByTime(parseInt(e.target.value) || 0)}
+                                />
+                            </div>
+                            <Button
+                                size="sm"
+                                className="h-8 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs"
+                                disabled={!advTargetEventId || advanceMutation.isPending}
+                                onClick={() => advanceMutation.mutate()}
+                            >
+                                <ChevronsRight className="h-3.5 w-3.5 mr-1" />
+                                {advanceMutation.isPending ? 'Generowanie...' : 'Generuj awanse'}
+                            </Button>
+                        </div>
+                        <p className="mt-2 text-[10px] text-orange-600/80">
+                            Q = najlepsi z każdego biegu (za miejsce), q = najlepsi spośród pozostałych (za czas)
+                        </p>
+                    </div>
+                )}
 
                 <div className="mb-6 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -943,11 +1021,19 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                     <span className="text-[11px] text-slate-500 font-medium truncate max-w-[200px]">
                                                                         {entry.club || 'Brak klubu'}
                                                                     </span>
-                                                                    {(entry.yearOfBirth || entry.dateOfBirth) && (
-                                                                        <span className="text-[11px] text-slate-400 bg-slate-50 px-1.5 rounded border border-slate-100">
-                                                                            {entry.yearOfBirth || (entry.dateOfBirth ? new Date(entry.dateOfBirth).getFullYear() : '')}
-                                                                        </span>
-                                                                    )}
+                                                                    {(entry.yearOfBirth || entry.dateOfBirth) && (() => {
+                                                                        const yob = entry.yearOfBirth || (entry.dateOfBirth ? new Date(entry.dateOfBirth).getFullYear() : null);
+                                                                        const meetingYear = meeting?.date ? new Date(meeting.date).getFullYear() : new Date().getFullYear();
+                                                                        const cat = yob ? getAgeCategory(yob, meetingYear) : null;
+                                                                        return (
+                                                                            <span className="flex items-center gap-1">
+                                                                                <span className="text-[11px] text-slate-400 bg-slate-50 px-1.5 rounded border border-slate-100">{yob}</span>
+                                                                                {cat && (
+                                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${CATEGORY_COLORS[cat] || 'bg-slate-100 text-slate-600'}`}>{cat}</span>
+                                                                                )}
+                                                                            </span>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                                 {parseRelaySquadMembers(entry.relaySquad).length > 0 && (
                                                                     <div className="mt-1 text-xs text-slate-500 flex items-center gap-1">
@@ -1473,6 +1559,60 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                 className="border-slate-200 font-bold"
                                             />
                                         </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Sędzia</label>
+                                            <Input
+                                                value={eventModel.referee || ''}
+                                                onChange={e => setEventModel({ ...eventModel, referee: e.target.value })}
+                                                placeholder="Imię Nazwisko"
+                                                className="border-slate-200"
+                                            />
+                                        </div>
+
+                                        <div className="col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                            <h4 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-2">
+                                                <div className="w-1 h-3 bg-sky-400 rounded-full" />
+                                                Warunki pogodowe (opcjonalnie)
+                                            </h4>
+                                        </div>
+                                        {(() => {
+                                            let weather: any = {};
+                                            try { weather = JSON.parse(eventModel.weather || '{}'); } catch { weather = {}; }
+                                            const updateWeather = (field: string, value: string) => {
+                                                weather[field] = value;
+                                                setEventModel({ ...eventModel, weather: JSON.stringify(weather) });
+                                            };
+                                            return (
+                                                <>
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Temperatura (°C)</label>
+                                                        <Input
+                                                            type="number"
+                                                            value={weather.temperature || ''}
+                                                            onChange={e => updateWeather('temperature', e.target.value)}
+                                                            placeholder="np. 18"
+                                                            className="border-slate-200"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Warunki</label>
+                                                        <select
+                                                            className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                                            value={weather.conditions || ''}
+                                                            onChange={e => updateWeather('conditions', e.target.value)}
+                                                        >
+                                                            <option value="">—</option>
+                                                            <option value="sunny">Słonecznie</option>
+                                                            <option value="cloudy">Pochmurno</option>
+                                                            <option value="rain">Deszcz</option>
+                                                            <option value="wind">Wiatr</option>
+                                                            <option value="indoor">Hala</option>
+                                                        </select>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
 
                                         <div className="col-span-2 border-t border-slate-100 pt-4 mt-2">
                                             <h4 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-2">

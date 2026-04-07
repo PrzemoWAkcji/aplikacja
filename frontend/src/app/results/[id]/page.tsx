@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import api from '../../../lib/api';
 import PublicResultsView from '../../../components/meetings/PublicResultsView';
+import TeamStandingsView from '../../../components/meetings/TeamStandingsView';
 import {
     Clock,
     Calendar,
@@ -28,6 +29,7 @@ interface Meeting {
     organizerLogo?: string;
     sponsorLogos: string[];
     domtelOnlineUrl?: string;
+    teamScoringEnabled?: boolean;
     events: MeetingEvent[];
 }
 
@@ -69,12 +71,13 @@ export default function PublicMeetingResultsPage() {
     const meetingId = params.id as string;
     const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
     const [showDomtelEmbed, setShowDomtelEmbed] = useState(false);
+    const [showTeamStandings, setShowTeamStandings] = useState(false);
     const resultsSectionRef = useRef<HTMLDivElement | null>(null);
 
     const { data: meeting, isLoading } = useQuery<Meeting>({
         queryKey: ['meeting-live', meetingId],
         queryFn: async () => {
-            const response = await api.get(`/meetings/${meetingId}`);
+            const response = await api.get(`/meetings/public/${meetingId}`);
             return response.data;
         },
     });
@@ -90,7 +93,7 @@ export default function PublicMeetingResultsPage() {
     });
 
     const selectedEvent = useMemo(() => {
-        return meeting?.events.find(e => e.id === selectedEventId);
+        return meeting?.events?.find(e => e.id === selectedEventId);
     }, [meeting, selectedEventId]);
 
     const sortedEvents = useMemo(() => {
@@ -168,6 +171,15 @@ export default function PublicMeetingResultsPage() {
 
     const handleSelectEvent = (eventId: string) => {
         setSelectedEventId(eventId);
+        setShowTeamStandings(false);
+        setTimeout(() => {
+            resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    };
+
+    const handleShowTeamStandings = () => {
+        setShowTeamStandings(true);
+        setSelectedEventId(null);
         setTimeout(() => {
             resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 50);
@@ -439,6 +451,20 @@ export default function PublicMeetingResultsPage() {
                             </div>
                         </div>
 
+                        {/* Team standings button */}
+                        {meeting.teamScoringEnabled && (
+                            <button
+                                onClick={handleShowTeamStandings}
+                                className={`w-full mt-3 flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-bold transition-all ${showTeamStandings
+                                    ? 'bg-yellow-500 text-white border-yellow-600 shadow-sm'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-yellow-50 hover:border-yellow-200 hover:text-yellow-700'
+                                    }`}
+                            >
+                                <Trophy className="h-4 w-4" />
+                                Klasyfikacja drużynowa
+                            </button>
+                        )}
+
                     </aside>
 
                     {/* MAIN CONTENT: RESULTS TABLE */}
@@ -455,7 +481,11 @@ export default function PublicMeetingResultsPage() {
                                 />
                             </div>
                         )}
-                        {!selectedEventId ? (
+                        {showTeamStandings ? (
+                            <div className="animate-in slide-in-from-bottom-2 duration-500 transition-all">
+                                <TeamStandingsView meetingId={meetingId} />
+                            </div>
+                        ) : !selectedEventId ? (
                             <div className="h-[600px] flex flex-col items-center justify-center bg-white rounded-3xl border border-slate-200 border-dashed animate-in fade-in duration-700">
                                 <div className="relative mb-8">
                                     <div className="absolute inset-0 bg-blue-100 rounded-full blur-3xl opacity-50 scale-150 animate-pulse"></div>

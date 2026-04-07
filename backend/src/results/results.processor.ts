@@ -1,8 +1,10 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import { Inject, Logger, forwardRef } from '@nestjs/common';
 import { ResultsService } from './results.service';
 import { ResultsGateway } from './results.gateway';
-import { Logger } from '@nestjs/common';
+import { BroadcastGateway } from '../broadcast/broadcast.gateway';
+import { BroadcastService } from '../broadcast/broadcast.service';
 
 @Processor('results-queue')
 export class ResultsProcessor extends WorkerHost {
@@ -11,6 +13,10 @@ export class ResultsProcessor extends WorkerHost {
   constructor(
     private readonly resultsService: ResultsService,
     private readonly resultsGateway: ResultsGateway,
+    @Inject(forwardRef(() => BroadcastGateway))
+    private readonly broadcastGateway: BroadcastGateway,
+    @Inject(forwardRef(() => BroadcastService))
+    private readonly broadcastService: BroadcastService,
   ) {
     super();
   }
@@ -43,6 +49,9 @@ export class ResultsProcessor extends WorkerHost {
         timestamp: new Date().toISOString(),
       });
 
+      // Also push to broadcast clients
+      await this.pushBroadcastUpdate(eventId);
+
       this.logger.log(`Job completed: Imported ${result.imported} results`);
       return result;
     } catch (error) {
@@ -51,6 +60,27 @@ export class ResultsProcessor extends WorkerHost {
         error.stack,
       );
       throw error;
+    }
+  }
+
+  private async pushBroadcastUpdate(eventId: string) {
+    try {
+      const prisma = (this.resultsService as any).prisma;
+      const event = await prisma.event.findUnique({
+        where: { id: eventId },
+        select: { meetingId: true },
+      });
+
+      if (event?.meetingId) {
+        const payload = await this.broadcastService.getGraphicData(
+          event.meetingId,
+          eventId,
+          'results_table',
+        );
+        this.broadcastGateway.sendUpdate(event.meetingId, payload);
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to push broadcast update: ${error.message}`);
     }
   }
 }

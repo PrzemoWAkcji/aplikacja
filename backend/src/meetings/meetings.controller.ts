@@ -11,7 +11,9 @@ import {
   UseInterceptors,
   UploadedFile,
   Res,
+  Query,
 } from '@nestjs/common';
+import { getAgeCategoryBounds, getAgeCategory } from '../common/age-category.util';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MeetingsService } from './meetings.service';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
@@ -37,6 +39,25 @@ export class MeetingsController {
     return this.meetingsService.findAll();
   }
 
+  @Get('public/:id')
+  findOnePublic(@Param('id') id: string) {
+    return this.meetingsService.findOne(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Get('private')
+  findAllPrivate() {
+    return this.meetingsService.findAll();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Get('private/:id')
+  findOnePrivate(@Param('id') id: string) {
+    return this.meetingsService.findOne(id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.meetingsService.findOne(id);
@@ -45,15 +66,15 @@ export class MeetingsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ORGANIZER, Role.ADMIN)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateMeetingDto: UpdateMeetingDto) {
-    return this.meetingsService.update(id, updateMeetingDto);
+  update(@Param('id') id: string, @Body() updateMeetingDto: UpdateMeetingDto, @Request() req: any) {
+    return this.meetingsService.update(id, updateMeetingDto, req.user.userId, req.user.role);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ORGANIZER, Role.ADMIN)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.meetingsService.remove(id);
+  remove(@Param('id') id: string, @Request() req: any) {
+    return this.meetingsService.remove(id, req.user.userId, req.user.role);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -109,6 +130,30 @@ export class MeetingsController {
     return this.meetingsService.getPrintData(id);
   }
 
+  @Get(':id/team-standings')
+  getTeamStandings(@Param('id') id: string) {
+    return this.meetingsService.getTeamStandings(id);
+  }
+
+  // Returns age category bounds for a given year (or current year)
+  @Get('utils/age-categories')
+  getAgeCategories(@Query('year') year?: string) {
+    const y = year ? parseInt(year) : new Date().getFullYear();
+    return getAgeCategoryBounds(y);
+  }
+
+  // Calculate category for a single athlete
+  @Get('utils/age-category')
+  getAthleteAgeCategory(
+    @Query('yearOfBirth') yearOfBirth: string,
+    @Query('year') year?: string,
+  ) {
+    const yob = parseInt(yearOfBirth);
+    const y = year ? parseInt(year) : new Date().getFullYear();
+    if (isNaN(yob)) return { category: null };
+    return { category: getAgeCategory(yob, y) };
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ORGANIZER, Role.ADMIN)
   @Get(':id/finishlynx-export')
@@ -119,13 +164,8 @@ export class MeetingsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ORGANIZER, Role.ADMIN)
   @Post(':id/finishlynx-generate')
-  generateFinishLynxOnDisk(
-    @Param('id') id: string,
-    @Body() body?: { exportPath?: string },
-  ) {
-    return this.meetingsService.writeFinishLynxFilesToDisk(
-      id,
-      body?.exportPath,
-    );
+  generateFinishLynxOnDisk(@Param('id') id: string) {
+    // exportPath pochodzi wyłącznie z env FINISHLYNX_EXPORT_DIR — nigdy z body
+    return this.meetingsService.writeFinishLynxFilesToDisk(id);
   }
 }

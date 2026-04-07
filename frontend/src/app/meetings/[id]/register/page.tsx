@@ -37,7 +37,7 @@ export default function PublicRegistrationPage() {
     const { data: meeting, isLoading } = useQuery<Meeting>({
         queryKey: ['meeting-public', params.id],
         queryFn: async () => {
-            const response = await api.get(`/meetings/${params.id}`);
+            const response = await api.get(`/meetings/public/${params.id}`);
             return response.data;
         },
         enabled: !!params.id,

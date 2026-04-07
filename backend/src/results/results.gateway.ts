@@ -11,7 +11,10 @@ import { Logger } from '@nestjs/common';
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: (process.env.ALLOWED_ORIGINS || 'http://localhost:3001')
+      .split(',')
+      .map((o) => o.trim()),
+    credentials: true,
   },
 })
 export class ResultsGateway

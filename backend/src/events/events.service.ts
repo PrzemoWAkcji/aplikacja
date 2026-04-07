@@ -799,4 +799,113 @@ export class EventsService {
       subEvents: results,
     };
   }
+
+  async generateAdvancement(
+    sourceEventId: string,
+    targetEventId: string,
+    advPerHeat: number,
+    advByTime: number,
+  ) {
+    const prisma = this.prisma as any;
+
+    // Load source entries with results
+    const sourceEntries = await prisma.entry.findMany({
+      where: {
+        eventId: sourceEventId,
+        status: { not: 'SCRATCHED' },
+      },
+      include: { result: true },
+    });
+
+    if (sourceEntries.length === 0) {
+      return { message: 'Brak zawodników w źródłowej konkurencji', advanced: 0 };
+    }
+
+    const advancedIds = new Set<string>();
+
+    // Q: top advPerHeat per heat by place
+    if (advPerHeat > 0) {
+      const byHeat = new Map<number, typeof sourceEntries>();
+      for (const e of sourceEntries) {
+        const h = e.heat ?? 0;
+        if (!byHeat.has(h)) byHeat.set(h, []);
+        byHeat.get(h)!.push(e);
+      }
+      for (const [, heatEntries] of byHeat) {
+        const ranked = (heatEntries as any[])
+          .filter((e: any) => e.result?.place && e.result.status !== 'DNS' && e.result.status !== 'DQ' && e.result.status !== 'NM')
+          .sort((a: any, b: any) => (a.result.place ?? 999) - (b.result.place ?? 999));
+        ranked.slice(0, advPerHeat).forEach((e: any) => advancedIds.add(e.id));
+      }
+    }
+
+    // q: best remaining by time (lucky losers)
+    if (advByTime > 0) {
+      const remaining = (sourceEntries as any[]).filter(
+        (e: any) => !advancedIds.has(e.id) && e.result?.time && e.result.status !== 'DNS' && e.result.status !== 'DQ' && e.result.status !== 'NM',
+      );
+      const sorted = remaining.sort((a: any, b: any) => {
+        const tA = this.parseTimeToSeconds(a.result?.time || '');
+        const tB = this.parseTimeToSeconds(b.result?.time || '');
+        return tA - tB;
+      });
+      sorted.slice(0, advByTime).forEach((e: any) => advancedIds.add(e.id));
+    }
+
+    // Create entries in target event (skip duplicates by bib or athleteName)
+    const existing = await prisma.entry.findMany({
+      where: { eventId: targetEventId },
+      select: { bib: true, athleteName: true },
+    });
+    const existingBibs = new Set(existing.map((e: any) => e.bib).filter(Boolean));
+    const existingNames = new Set(existing.map((e: any) => e.athleteName?.toLowerCase()));
+
+    let createdCount = 0;
+    for (const entryId of advancedIds) {
+      const src = (sourceEntries as any[]).find((e: any) => e.id === entryId);
+      if (!src) continue;
+
+      if (src.bib && existingBibs.has(src.bib)) continue;
+      if (existingNames.has(src.athleteName?.toLowerCase())) continue;
+
+      await prisma.entry.create({
+        data: {
+          eventId: targetEventId,
+          athleteName: src.athleteName,
+          firstName: src.firstName,
+          middleName: src.middleName,
+          lastName: src.lastName,
+          bib: src.bib,
+          club: src.club,
+          countryCode: src.countryCode,
+          dateOfBirth: src.dateOfBirth,
+          yearOfBirth: src.yearOfBirth,
+          gender: src.gender,
+          pb: src.pb,
+          sb: src.sb,
+          seedingResult: src.result?.time || src.result?.bestResult || src.sb,
+          athleteId: src.athleteId,
+          status: 'CONFIRMED',
+          relaySquad: src.relaySquad,
+        },
+      });
+      createdCount++;
+    }
+
+    return {
+      message: `Dodano ${createdCount} zawodników do konkurencji docelowej (Q=${advPerHeat}, q=${advByTime})`,
+      advanced: createdCount,
+      total: advancedIds.size,
+    };
+  }
+
+  private parseTimeToSeconds(time: string): number {
+    if (!time) return 9999;
+    const clean = time.trim().replace(',', '.');
+    // Format: "1:23.45" or "10.45" or "1:23:45.67"
+    const parts = clean.split(':');
+    if (parts.length === 1) return parseFloat(parts[0]) || 9999;
+    if (parts.length === 2) return parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+    return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2]);
+  }
 }

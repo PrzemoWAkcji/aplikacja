@@ -253,7 +253,18 @@ export class ResultsService {
   async aggregateMultiEventPoints(parentEvent: any) {
     const prisma = this.prisma as any;
 
-    const subEventIds = parentEvent.subEvents.map((se: any) => se.id);
+    // Sort sub-events by startTime (if set) then by creation order — like MDB's NW column
+    const orderedSubEvents = [...parentEvent.subEvents].sort((a: any, b: any) => {
+      if (a.startTime && b.startTime) {
+        return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+      }
+      if (a.startTime) return -1;
+      if (b.startTime) return 1;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    const subEventIds = orderedSubEvents.map((se: any) => se.id);
+
     const parentEntries = await prisma.entry.findMany({
       where: { eventId: parentEvent.id },
       include: { athlete: true },
@@ -264,14 +275,68 @@ export class ResultsService {
       include: { result: true, event: true },
     });
 
-    const results = parentEntries.map((pe: any) => {
-      const matchingSubEntries = subEntries.filter(
-        (se: any) =>
-          (pe.bib && se.bib === pe.bib) || pe.athleteName === se.athleteName,
-      );
+    // DNF statuses — only DNS and DQ disqualify the entire multi-event
+    // NM (no mark) = 0 points for that event, athlete continues
+    const DNF_STATUSES = ['DNS', 'DQ'];
+    // Statuses that give 0 points but do NOT disqualify from multi-event
+    const ZERO_PT_STATUSES = ['NM', 'DNF'];
 
-      const subEventDetails = matchingSubEntries.map((se: any) => {
-        let points = se.result?.points;
+    const results = parentEntries.map((pe: any) => {
+      // For each ordered sub-event, find matching entry (by bib or name)
+      const subEventDetails: any[] = [];
+      let isDNF = false;
+      let cumulativePoints = 0;
+
+      for (const subEvent of orderedSubEvents) {
+        const se = subEntries.find(
+          (e: any) =>
+            e.eventId === subEvent.id &&
+            ((pe.bib && e.bib === pe.bib) || pe.athleteName === e.athleteName),
+        );
+
+        if (!se) {
+          // No entry in this sub-event — treat as not yet competed (0 pts)
+          subEventDetails.push({
+            eventName: subEvent.name,
+            eventCode: subEvent.code,
+            performance: '-',
+            points: 0,
+            cumulativeAfter: cumulativePoints,
+            status: null,
+          });
+          continue;
+        }
+
+        const resultStatus = se.result?.status?.toUpperCase();
+
+        // DNS / DQ → whole multi-event is DNF
+        if (resultStatus && DNF_STATUSES.includes(resultStatus)) {
+          isDNF = true;
+          subEventDetails.push({
+            eventName: se.event.name,
+            eventCode: se.event.code,
+            performance: resultStatus,
+            points: 0,
+            cumulativeAfter: cumulativePoints,
+            status: resultStatus,
+          });
+          continue;
+        }
+
+        // NM / DNF in sub-event → 0 pkt, ale zawodnik kontynuuje wielobój
+        if (resultStatus && ZERO_PT_STATUSES.includes(resultStatus)) {
+          subEventDetails.push({
+            eventName: se.event.name,
+            eventCode: se.event.code,
+            performance: resultStatus,
+            points: 0,
+            cumulativeAfter: cumulativePoints,
+            status: resultStatus,
+          });
+          continue;
+        }
+
+        let points = se.result?.points ?? null;
         if (
           points === null &&
           se.result &&
@@ -283,15 +348,21 @@ export class ResultsService {
             se.gender || se.event.gender,
           );
         }
-        return {
+
+        const pts = points ?? 0;
+        cumulativePoints += pts;
+
+        subEventDetails.push({
           eventName: se.event.name,
           eventCode: se.event.code,
           performance: se.result?.time || se.result?.bestResult || '-',
-          points: points || 0,
-        };
-      });
+          points: pts,
+          cumulativeAfter: cumulativePoints,
+          status: resultStatus || 'OK',
+        });
+      }
 
-      const totalPoints = subEventDetails.reduce(
+      const totalPoints = isDNF ? 0 : subEventDetails.reduce(
         (sum: number, det: any) => sum + det.points,
         0,
       );
@@ -301,15 +372,27 @@ export class ResultsService {
         totalPoints,
         details: subEventDetails,
         isOverall: true,
+        isDNF,
         entry: pe,
         place: 0,
       };
     });
 
-    const sorted = results.sort(
-      (a: any, b: any) => b.totalPoints - a.totalPoints,
-    );
-    sorted.forEach((r: any, idx: number) => (r.place = idx + 1));
+    // DNF athletes sort to the bottom, then by totalPoints desc
+    const sorted = results.sort((a: any, b: any) => {
+      if (a.isDNF && !b.isDNF) return 1;
+      if (!a.isDNF && b.isDNF) return -1;
+      return b.totalPoints - a.totalPoints;
+    });
+
+    let place = 1;
+    sorted.forEach((r: any) => {
+      if (r.isDNF) {
+        r.place = null;
+      } else {
+        r.place = place++;
+      }
+    });
 
     return sorted;
   }

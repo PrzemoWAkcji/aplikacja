@@ -35,14 +35,14 @@ export default function DashboardPage() {
     const _hasHydrated = useAuthStore((state) => state._hasHydrated);
     useEffect(() => {
         if (_hasHydrated && !token) {
-            router.push('/login');
+            router.push('/');
         }
     }, [_hasHydrated, token, router]);
 
     const { data: meetings, isLoading, error } = useQuery<Meeting[]>({
         queryKey: ['meetings'],
         queryFn: async () => {
-            const response = await api.get('/meetings');
+            const response = await api.get('/meetings/private');
             return response.data;
         },
         enabled: !!token,
@@ -86,7 +86,7 @@ export default function DashboardPage() {
                             className="h-12 w-12 rounded-2xl border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all p-0 flex items-center justify-center"
                             onClick={() => {
                                 useAuthStore.getState().logout();
-                                router.push('/login');
+                                router.push('/');
                             }}
                             title="Wyloguj"
                         >

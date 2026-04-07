@@ -21,6 +21,8 @@ import { Role } from '@prisma/client';
 export class EntriesController {
   constructor(private readonly entriesService: EntriesService) {}
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
   @Post()
   create(@Body() createEntryDto: CreateEntryDto) {
     return this.entriesService.create(createEntryDto);

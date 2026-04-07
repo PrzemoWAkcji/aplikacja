@@ -75,7 +75,7 @@ export default function MeetingDetailsPage() {
     const { data: meeting, isLoading, error } = useQuery<Meeting>({
         queryKey: ['meeting', params.id],
         queryFn: async () => {
-            const response = await api.get(`/meetings/${params.id}`);
+            const response = await api.get(`/meetings/private/${params.id}`);
             return response.data;
         },
         enabled: !!params.id && !!token,

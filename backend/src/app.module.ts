@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -13,9 +15,15 @@ import { ResultsModule } from './results/results.module';
 import { HealthModule } from './health.module';
 import { RosterModule } from './roster/roster.module';
 import { PzlaModule } from './pzla/pzla.module';
+import { RecordsModule } from './records/records.module';
+import { BroadcastModule } from './broadcast/broadcast.module';
 
 @Module({
   imports: [
+    // Rate limiting: globalny limit 100 req/min; auth endpoints mają własny, ostrzejszy limit
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: 60000, limit: 100 },
+    ]),
     PrismaModule,
     UsersModule,
     AuthModule,
@@ -27,6 +35,8 @@ import { PzlaModule } from './pzla/pzla.module';
     HealthModule,
     RosterModule,
     PzlaModule,
+    RecordsModule,
+    BroadcastModule,
     BullModule.forRoot({
       connection: {
         host: process.env.REDIS_HOST || 'localhost',
@@ -35,22 +45,10 @@ import { PzlaModule } from './pzla/pzla.module';
     }),
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Globalny guard throttlera — nadpisz @Throttle() na konkretnych endpointach
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
-export class AppModule {
-  configure(consumer: import('@nestjs/common').MiddlewareConsumer) {
-    consumer
-      .apply((req: any, res: any, next: any) => {
-        if (req.url.includes('/auth/profile')) {
-          console.log(
-            `[DEBUG] Incoming /auth/profile request. Auth header: ${req.headers.authorization}`,
-          );
-          console.log(
-            `[DEBUG] Current JWT_SECRET (first 3 chars): ${process.env.JWT_SECRET?.substring(0, 3)}`,
-          );
-        }
-        next();
-      })
-      .forRoutes('*');
-  }
-}
+export class AppModule {}
