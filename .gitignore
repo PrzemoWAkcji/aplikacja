@@ -8,7 +8,7 @@ Office 11/
 09.07 - AWF'/
 *.pdf
 !LEKKOATLETYKA-przepisy-zawodow-i-przepisy-t-echniczne-wyd.-2022-wersja-2023.04-1.pdf
-!roster protoko³y.pdf
+!roster protokoï¿½y.pdf
 *.xls
 *_output.txt
 *_output.html
@@ -26,3 +26,6 @@ fetch_*.js
 !backend/src/pzla/
 !backend/src/test-fixtures/
 !backend/scripts/
+!deploy.sh
+!docker-compose.yml
+!.env
