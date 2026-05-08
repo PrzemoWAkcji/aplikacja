@@ -1,7 +1,9 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
+import { MailService } from '../mail/mail.service';
 import { JwtService } from '@nestjs/jwt';
 import { refreshConstants } from './refresh-constants';
+import { RegisterDto } from './dto/register.dto';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -10,21 +12,27 @@ export class AuthService {
 
   constructor(
     private usersService: UsersService,
+    private mailService: MailService,
     private jwtService: JwtService,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
     const sanitizedEmail = email.trim().toLowerCase();
     const user = await this.usersService.findOne(sanitizedEmail);
+    if (!user) return null;
 
-    if (user) {
-      const isMatch = await bcrypt.compare(pass, user.password);
-      if (isMatch) {
-        const { password, ...result } = user;
-        return result;
-      }
+    const isMatch = await bcrypt.compare(pass, user.password);
+    if (!isMatch) return null;
+
+    // Blokada logowania gdy email nie zweryfikowany
+    if (!user.emailVerified) {
+      throw new UnauthorizedException(
+        'Proszę zweryfikować adres email przed zalogowaniem. Sprawdź skrzynkę pocztową.',
+      );
     }
-    return null;
+
+    const { password, ...result } = user;
+    return result;
   }
 
   async login(user: any) {
@@ -39,17 +47,11 @@ export class AuthService {
       const payload = this.jwtService.verify(refreshToken, {
         secret: refreshConstants.secret,
       });
-
       if (payload.type !== 'refresh') {
         throw new UnauthorizedException('Nieprawidłowy typ tokena');
       }
-
       const user = await this.usersService.findById(payload.sub);
-      if (!user) {
-        throw new UnauthorizedException('Użytkownik nie istnieje');
-      }
-
-      // Rotacja: nowy access + refresh token przy każdym odświeżeniu
+      if (!user) throw new UnauthorizedException('Użytkownik nie istnieje');
       return {
         access_token: this.generateAccessToken(user),
         refresh_token: this.generateRefreshToken(user.id),
@@ -60,8 +62,35 @@ export class AuthService {
     }
   }
 
-  async register(user: any) {
-    return this.usersService.create(user);
+  async register(dto: Omit<RegisterDto, 'inviteCode'>) {
+    const { user, emailToken } = await this.usersService.create(dto);
+
+    if (emailToken) {
+      // Wyślij email weryfikacyjny
+      await this.mailService.sendVerificationEmail(
+        user.email,
+        user.firstName,
+        emailToken,
+      );
+      return {
+        message:
+          'Konto założone! Sprawdź skrzynkę email i kliknij link aktywacyjny.',
+        emailVerificationRequired: true,
+      };
+    }
+
+    // Brak weryfikacji email — wyślij email powitalny
+    await this.mailService.sendWelcomeEmail(user.email, user.firstName);
+    return {
+      message: 'Konto założone pomyślnie! Możesz się teraz zalogować.',
+      emailVerificationRequired: false,
+    };
+  }
+
+  async verifyEmail(token: string) {
+    const user = await this.usersService.verifyEmail(token);
+    await this.mailService.sendWelcomeEmail(user.email, user.firstName);
+    return { message: 'Email zweryfikowany. Możesz się teraz zalogować.' };
   }
 
   private generateAccessToken(user: { id: string; email: string; role: string }) {

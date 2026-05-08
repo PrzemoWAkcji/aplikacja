@@ -1,74 +1,146 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
     container_name: aplikacja-postgres
     environment:
-      POSTGRES_USER: ${DB_USER:-admin}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret_password_here}
-      POSTGRES_DB: ${DB_NAME:-aplikacja_db}
-    ports:
-      - "5432:5432"
+      POSTGRES_USER:     ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Ustaw DB_PASSWORD w pliku .env}
+      POSTGRES_DB:       ${DB_NAME:-aplikacja_db}
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - aplikacja-network
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d ${DB_NAME:-aplikacja_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     container_name: aplikacja-redis
-    ports:
-      - "6379:6379"
+    command: >
+      sh -c "if [ -n \"$$REDIS_PASSWORD\" ]; then
+               redis-server --requirepass $$REDIS_PASSWORD;
+             else
+               redis-server;
+             fi"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
     networks:
       - aplikacja-network
     restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Jednorazowy kontener migracji — uruchamia się przed backendem, kończy po zakończeniu
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aplikacja-migrate
+    command: npx prisma migrate deploy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-admin}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-aplikacja_db}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aplikacja-network
+    restart: "no"
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: aplikacja-backend
+    env_file:
+      - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://admin:secret_password_here@postgres:5432/aplikacja_db?schema=public
-      PORT: 3000
-      JWT_SECRET: super-secret-key
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      FINISHLYNX_EXPORT_DIR: /app/lynx_data
-    ports:
-      - "3000:3000"
-    depends_on:
-      - postgres
-      - redis
+      DATABASE_URL:  postgresql://${DB_USER:-admin}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-aplikacja_db}?schema=public
+      FRONTEND_URL:  https://${DOMAIN}
+      ALLOWED_ORIGINS: https://${DOMAIN},https://api.${DOMAIN}
+    expose:
+      - "3000"
     volumes:
-      - C:/Zawody:/app/lynx_data
+      - ${LYNX_DATA_PATH:-./lynx_data}:/app/lynx_data
     networks:
       - aplikacja-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
     container_name: aplikacja-frontend
+    expose:
+      - "3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3000
-    ports:
-      - "3001:3000"
-    depends_on:
-      - backend
+      NODE_ENV: production
     networks:
       - aplikacja-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    container_name: aplikacja-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    networks:
+      - aplikacja-network
+    depends_on:
+      - frontend
+      - backend
+    restart: always
+
+  # Certbot — odnawia certyfikaty SSL co 12 godzin
+  certbot:
+    image: certbot/certbot:latest
+    container_name: aplikacja-certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
     restart: always
 
 volumes:
   postgres_data:
   redis_data:
-
+  certbot_www:
+  certbot_certs:
 
 networks:
   aplikacja-network:

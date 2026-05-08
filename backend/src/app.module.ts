@@ -17,6 +17,9 @@ import { RosterModule } from './roster/roster.module';
 import { PzlaModule } from './pzla/pzla.module';
 import { RecordsModule } from './records/records.module';
 import { BroadcastModule } from './broadcast/broadcast.module';
+import { ClubsModule } from './clubs/clubs.module';
+import { JudgesModule } from './judges/judges.module';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -37,6 +40,9 @@ import { BroadcastModule } from './broadcast/broadcast.module';
     PzlaModule,
     RecordsModule,
     BroadcastModule,
+    ClubsModule,
+    JudgesModule,
+    MailModule,
     BullModule.forRoot({
       connection: {
         host: process.env.REDIS_HOST || 'localhost',

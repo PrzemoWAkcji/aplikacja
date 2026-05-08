@@ -40,10 +40,10 @@ export class FileMappingService {
 
     const encodedEmail = encodeURIComponent(email.trim());
     const meetingListUrls = [
+      `http://exprt.domtel-sport.pl/ImprezaCSV_2.php?mail=${encodedEmail}&wersja=5.01`,
       `http://exprt.domtel-sport.pl/ImprezaCSV_2.php?mail=${encodedEmail}&wersja=5`,
       `http://exprt.domtel-sport.pl/ImprezaCSV_2.php?mail=${encodedEmail}`,
-      `https://exprt.domtel-sport.pl/ImprezaCSV_2.php?mail=${encodedEmail}&wersja=5`,
-      `https://exprt.domtel-sport.pl/ImprezaCSV_2.php?mail=${encodedEmail}`,
+      `https://exprt.domtel-sport.pl/ImprezaCSV_2.php?mail=${encodedEmail}&wersja=5.01`,
     ];
 
     const errors: string[] = [];
@@ -52,6 +52,15 @@ export class FileMappingService {
       try {
         const buffer = await this.fetchCsvBuffer(url);
         const content = this.decodeCsvContent(buffer);
+
+        // Domtel blocked old API clients — server returns an update notice instead of data
+        if (this.isDomtelUpdateNotice(content)) {
+          throw new BadGatewayException(
+            'Serwer Domtel wymaga aktualizacji programu ZawodyLA LIVE do wersji 5.01. ' +
+              'Import ze Starter PZLA jest tymczasowo niedostępny.',
+          );
+        }
+
         const meetings = this.parseStarterMeetingList(content);
 
         if (meetings.length > 0) {
@@ -65,6 +74,9 @@ export class FileMappingService {
           return { meetings: [] };
         }
       } catch (error) {
+        if (error instanceof BadGatewayException) {
+          throw error;
+        }
         const message =
           error instanceof Error ? error.message : 'Unknown starter list error';
         errors.push(`${url} -> ${message}`);
@@ -73,6 +85,15 @@ export class FileMappingService {
 
     throw new BadGatewayException(
       `Unable to fetch meeting list from Starter service. ${errors.join(' | ')}`,
+    );
+  }
+
+  private isDomtelUpdateNotice(content: string): boolean {
+    const upper = (content || '').toUpperCase();
+    return (
+      upper.includes('POBIERZ NOWY PROGRAM') ||
+      upper.includes('ZAWODYLA LIVE') ||
+      upper.includes('NOWY PROGRAM ZAWODYLA')
     );
   }
 
@@ -86,10 +107,11 @@ export class FileMappingService {
     }
 
     const importUrls = [
+      `http://exprt.domtel-sport.pl/ZawodyCSV.php?LP=${encodeURIComponent(remoteId)}&wersja=5.01`,
       `http://exprt.domtel-sport.pl/ZawodyCSV.php?LP=${encodeURIComponent(remoteId)}&wersja=5`,
       `http://exprt.domtel-sport.pl/ZawodyCSV.php?LP=${encodeURIComponent(remoteId)}`,
       `https://domtel-sport.pl/zgloszenia/export1/ConfirmationCSV.php?LP=${encodeURIComponent(remoteId)}`,
-      `http://exprt.domtel-sport.pl/KonkurencjeZgloszeniaCSV.php?LP=${encodeURIComponent(remoteId)}`,
+      `http://exprt.domtel-sport.pl/KonkurencjeZgloszeniaCSV.php?LP=${encodeURIComponent(remoteId)}&wersja=5.01`,
     ];
 
     const errors: string[] = [];
@@ -99,16 +121,26 @@ export class FileMappingService {
         const buffer = await this.fetchCsvBuffer(url);
         const content = this.decodeCsvContent(buffer);
 
-        if (!this.looksLikeFederationCsv(content)) {
-          if (this.looksLikeStarterRawCsv(content)) {
-            const result = await this.importStarterRawCsv(
-              meetingId,
-              remoteId,
-              content,
-            );
-            return { ...result, sourceUrl: url };
-          }
+        if (this.isDomtelUpdateNotice(content)) {
+          throw new BadGatewayException(
+            'Serwer Domtel wymaga aktualizacji programu ZawodyLA LIVE do wersji 5.01. ' +
+              'Import ze Starter PZLA jest tymczasowo niedostępny.',
+          );
+        }
 
+        // Check Starter format FIRST — its header is unambiguous (ID_lokal,id,IdBaza...)
+        // Federation CSV detection uses broad heuristics (e.g. 'IMIE' substring) that
+        // can false-positive on Starter CSVs containing athlete surnames like 'IMIELSKA'.
+        if (this.looksLikeStarterRawCsv(content)) {
+          const result = await this.importStarterRawCsv(
+            meetingId,
+            remoteId,
+            content,
+          );
+          return { ...result, sourceUrl: url };
+        }
+
+        if (!this.looksLikeFederationCsv(content)) {
           errors.push(`${url} -> response does not look like supported CSV`);
           continue;
         }
@@ -116,6 +148,9 @@ export class FileMappingService {
         const result = await this.importFederationCsv(meetingId, buffer);
         return { ...result, sourceUrl: url };
       } catch (error) {
+        if (error instanceof BadGatewayException) {
+          throw error;
+        }
         const message =
           error instanceof Error
             ? error.message
@@ -685,6 +720,7 @@ export class FileMappingService {
     remoteId: string,
   ): Promise<Map<string, string>> {
     const urls = [
+      `http://exprt.domtel-sport.pl/KonkurencjeZgloszeniaCSV.php?LP=${encodeURIComponent(remoteId)}&wersja=5.01`,
       `http://exprt.domtel-sport.pl/KonkurencjeZgloszeniaCSV.php?LP=${encodeURIComponent(remoteId)}&wersja=5`,
       `http://exprt.domtel-sport.pl/KonkurencjeZgloszeniaCSV.php?LP=${encodeURIComponent(remoteId)}`,
     ];

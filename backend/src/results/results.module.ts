@@ -7,6 +7,7 @@ import { FileWatcherService } from './file-watcher.service';
 import { BullModule } from '@nestjs/bullmq';
 import { ResultsProcessor } from './results.processor';
 import { PointsService } from './points.service';
+import { MultiEventScoringService } from './multi-event-scoring.service';
 import { BroadcastModule } from '../broadcast/broadcast.module';
 
 @Module({
@@ -24,7 +25,8 @@ import { BroadcastModule } from '../broadcast/broadcast.module';
     FileWatcherService,
     ResultsProcessor,
     PointsService,
+    MultiEventScoringService,
   ],
-  exports: [ResultsService, ResultsGateway, PointsService],
+  exports: [ResultsService, ResultsGateway, PointsService, MultiEventScoringService],
 })
 export class ResultsModule {}

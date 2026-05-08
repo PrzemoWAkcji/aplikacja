@@ -129,6 +129,7 @@ export default function CreateMeetingPage() {
     const [selectedStarterMeetingId, setSelectedStarterMeetingId] = useState('');
     const [isLoadingStarterMeetings, setIsLoadingStarterMeetings] = useState(false);
     const [isImportingStarter, setIsImportingStarter] = useState(false);
+    const [starterError, setStarterError] = useState('');
     const [autoImportStarterEntries, setAutoImportStarterEntries] = useState(true);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -144,10 +145,12 @@ export default function CreateMeetingPage() {
 
     const fetchStarterMeetings = async () => {
         if (!starterEmail.trim()) {
-            alert('Podaj adres email uzywany w Starter PZLA.');
+            setStarterError('Podaj adres email używany w Starter PZLA.');
             return;
         }
 
+        setStarterError('');
+        setStarterMeetings([]);
         setIsLoadingStarterMeetings(true);
         try {
             const response = await api.get('/file-mapping/starter/meetings', {
@@ -157,13 +160,18 @@ export default function CreateMeetingPage() {
             setStarterMeetings(meetings);
 
             if (meetings.length === 0) {
-                alert('Nie znaleziono imprez dla podanego adresu email.');
+                setStarterError('Nie znaleziono imprez dla podanego adresu email.');
                 return;
             }
 
             setSelectedStarterMeetingId(meetings[0].id);
-        } catch {
-            alert('Nie udalo sie pobrac listy imprez ze Starter PZLA.');
+        } catch (err: any) {
+            const msg = err?.response?.data?.message || '';
+            if (msg.includes('Domtel') || msg.includes('ZawodyLA') || msg.includes('wersji 5')) {
+                setStarterError('⚠️ Serwer Domtel zablokował dostęp dla starszych klientów. Wymagana jest aktualizacja programu ZawodyLA LIVE do wersji 5.01. Import ze Starter PZLA jest tymczasowo niedostępny.');
+            } else {
+                setStarterError('Nie udało się pobrać listy imprez ze Starter PZLA.');
+            }
         } finally {
             setIsLoadingStarterMeetings(false);
         }
@@ -295,6 +303,12 @@ export default function CreateMeetingPage() {
                                             {isLoadingStarterMeetings ? 'Pobieranie...' : 'Pobierz imprezy'}
                                         </Button>
                                     </div>
+
+                                    {starterError && (
+                                        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                                            {starterError}
+                                        </div>
+                                    )}
 
                                     {starterMeetings.length > 0 && (
                                         <div className="space-y-2">

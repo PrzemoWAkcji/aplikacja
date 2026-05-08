@@ -64,7 +64,12 @@ export class EventsController {
     @Param('id') id: string,
     @Body() body: ApplySeedingDto,
   ) {
-    return this.eventsService.applySeeding(id, body.entries);
+    const entries = body.entries.map((e) => ({
+      id: e.id,
+      heat: e.heat ?? null,
+      lane: e.lane ?? null,
+    }));
+    return this.eventsService.applySeeding(id, entries);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

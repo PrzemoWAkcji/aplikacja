@@ -16,19 +16,32 @@ datasource db {
 enum Role {
   ADMIN
   ORGANIZER
+  COACH
+  ATHLETE
   USER
 }
 
 model User {
-  id        String    @id @default(uuid())
-  email     String    @unique
-  password  String
-  firstName String
-  lastName  String
-  role      Role      @default(USER)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  meetings  Meeting[]
+  id             String    @id @default(uuid())
+  email          String    @unique
+  password       String
+  firstName      String
+  lastName       String
+  role           Role      @default(USER)
+
+  // Email verification
+  emailVerified  Boolean   @default(false)
+  emailToken     String?   @unique
+
+  // Profile fields (ATHLETE / COACH)
+  dateOfBirth    DateTime?
+  clubName       String?   // "niestowarzyszony" or club name
+  licenseNumber  String?
+  phoneNumber    String?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  meetings       Meeting[]
 }
 
 enum MeetingSeason {
@@ -103,9 +116,10 @@ model Event {
   advByTime       Int?     // q: how many additional athletes advance by best time
   weather         String?  // JSON: { temperature, humidity, conditions, notes }
   referee         String?  // Judge/referee name for this event
-  meeting        Meeting  @relation(fields: [meetingId], references: [id])
+  meeting        Meeting    @relation(fields: [meetingId], references: [id])
   meetingId      String
   entries        Entry[]
+  judges         EventJudge[]
   parentEvent    Event?    @relation("SubEvents", fields: [parentEventId], references: [id])
   parentEventId  String?
   subEvents      Event[]   @relation("SubEvents")
@@ -148,15 +162,17 @@ model Entry {
   // Race assignment
   heat           Int?
   lane           Int?
-  
+
   // Relations
   event          Event       @relation(fields: [eventId], references: [id])
   eventId        String
   athlete        Athlete?    @relation(fields: [athleteId], references: [id])
   athleteId      String?
+  clubRef        Club?       @relation(fields: [clubId], references: [id])
+  clubId         String?
   status         EntryStatus @default(PENDING)
   result         Result?
-  
+
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -250,24 +266,85 @@ model ActivityLog {
 
 model Athlete {
   id             String    @id @default(uuid())
-  // Use unique key? Or just search? 
-  // Let us store full name
   firstName      String?
   lastName       String?
   athleteName    String    // Full name or display name
 
   gender         String?
   club           String?
+  clubId         String?
   countryCode    String?   @default("POL")
   birthDate      DateTime?
   yearOfBirth    Int?
-  
+
+  // PZLA identifiers
+  pzlaId         Int?      // NrZawodnika from legacy baza table
+  licenseNumber  String?   // Nr rejestracji / Licencja_Nr
+  licenseYear    Int?
+  licenseValid   String?   // Licencja_waznosc
+
   // Performance Summary
-  pb             String?   
+  pb             String?
   sb             String?
-  
+
   entries        Entry[]
-  
+  clubRef        Club?     @relation(fields: [clubId], references: [id])
+
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+
+  @@index([pzlaId])
+  @@index([lastName, firstName])
+}
+
+model Club {
+  id            String    @id @default(uuid())
+  shortName     String    // SkrótKlubu
+  fullName      String?   // NazwaPelna
+  city          String?
+  voivodeship   String?   // woj
+  pzlaId        Int?      // NrKlubu from legacy — unique PZLA number
+  licenseNr     Int?
+  licenseYear   Int?
+  website       String?
+
+  athletes      Athlete[]
+  entries       Entry[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([pzlaId])
+  @@index([shortName])
+}
+
+model Judge {
+  id             String       @id @default(uuid())
+  licenseNumber  Int?         @unique  // NrLicencji
+  firstName      String
+  lastName       String
+  birthDate      DateTime?
+  voivodeship    String?
+  judgeClass     String?      // "Sędzia" | "SedziaOkregowy" | "SedziaZwiazkowy" | "SedziaMiedzynarodowy"
+  courseYear     String?      // UkonczenieKursu
+
+  assignments    EventJudge[]
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([lastName, firstName])
+}
+
+model EventJudge {
+  id          String   @id @default(uuid())
+  eventId     String
+  judgeId     String
+  function    String   // "Sędzia główny", "Sędzia pola", "Mierzący", etc.
+  sortOrder   Int?
+
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  judge       Judge    @relation(fields: [judgeId], references: [id])
+
+  @@unique([eventId, judgeId, function])
 }

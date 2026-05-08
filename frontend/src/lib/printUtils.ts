@@ -100,8 +100,11 @@ const formatDate = (dateString: string) => {
 
 const getLogoUrl = (filename: string) => {
     if (!filename) return '';
-    const baseUrl = api.defaults.baseURL || 'http://localhost:3000';
-    return `${baseUrl}/meetings/uploads/${filename}`;
+    // Używamy ścieżki względnej przez nginx (/api/) zamiast absolutnego localhost URL
+    if (typeof window !== 'undefined') {
+        return `${window.location.origin}/api/meetings/uploads/${filename}`;
+    }
+    return `/api/meetings/uploads/${filename}`;
 };
 
 const getPublicLogoUrl = (filename: string) => {
@@ -210,7 +213,10 @@ const getEventType = (event: any): 'THROW' | 'HORIZONTAL_JUMP' | 'VERTICAL_JUMP'
 // -- HEADER GENERATOR --
 const renderHeader = (meeting: any, event: any, titleDetails: string, options: { isProtocol?: boolean; isStartList?: boolean }) => {
     const eventType = getEventType(event);
-    const logoUrl = getPublicLogoUrl('pzla-logo.jpg');
+    // Logo organizatora ma pierwszeństwo; PZLA logo jako fallback
+    const logoUrl = meeting?.organizerLogo
+        ? getLogoUrl(meeting.organizerLogo)
+        : getPublicLogoUrl('pzla-logo.jpg');
     const startDate = event.startTime ? new Date(event.startTime).toLocaleDateString('pl-PL') : formatDate(meeting.date);
     const startTimeRaw = event.startTime ? new Date(event.startTime).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : '';
     const startTime = startTimeRaw.replace(':', '.');
