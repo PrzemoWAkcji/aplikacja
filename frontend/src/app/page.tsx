@@ -4,13 +4,21 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../lib/api';
 import Link from 'next/link';
 import { Button } from '../components/ui/button';
-import { Calendar, MapPin, ChevronRight, LogIn, ExternalLink, Zap, Timer, Trophy, Activity } from 'lucide-react';
+import { Calendar, MapPin, ChevronRight, LogIn, ExternalLink, Zap, Timer, Trophy, Activity, ListChecks, UserPlus, CircleDot } from 'lucide-react';
+
+type MeetingStatus = 'DRAFT' | 'SCHEDULED' | 'OPEN' | 'FINISHED' | 'CANCELLED';
 
 interface Meeting {
   id: string;
   name: string;
   date: string;
+  endDate?: string | null;
   location: string;
+  city?: string | null;
+  status?: MeetingStatus;
+  season?: 'STADIUM' | 'INDOOR';
+  type?: string;
+  events?: Array<{ id: string }>;
   domtelOnlineUrl?: string;
 }
 
@@ -22,6 +30,53 @@ export default function Home() {
       return response.data;
     },
   });
+
+  // Pomocnicze funkcje do statusu/sortowania
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const todayMs = startOfDay(new Date());
+
+  const getMeetingState = (m: Meeting) => {
+    const start = startOfDay(new Date(m.date));
+    const end = m.endDate ? startOfDay(new Date(m.endDate)) : start;
+    if (m.status === 'CANCELLED') return 'cancelled' as const;
+    if (m.status === 'FINISHED' || end < todayMs) return 'finished' as const;
+    if (start <= todayMs && todayMs <= end) return 'live' as const;
+    if (m.status === 'OPEN') return 'open' as const;
+    return 'upcoming' as const;
+  };
+
+  const sortedMeetings = (meetings ?? []).slice().sort((a, b) => {
+    const order = { live: 0, open: 1, upcoming: 2, finished: 3, cancelled: 4 };
+    const sa = order[getMeetingState(a)];
+    const sb = order[getMeetingState(b)];
+    if (sa !== sb) return sa - sb;
+    return new Date(a.date).getTime() - new Date(b.date).getTime();
+  });
+
+  const formatDateRange = (m: Meeting) => {
+    const start = new Date(m.date);
+    const end = m.endDate ? new Date(m.endDate) : null;
+    const fmt = (d: Date) => d.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
+    if (end && startOfDay(end) !== startOfDay(start)) {
+      return `${fmt(start)} – ${fmt(end)} ${end.getFullYear()}`;
+    }
+    return `${start.toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  };
+
+  const getStateBadge = (state: ReturnType<typeof getMeetingState>) => {
+    switch (state) {
+      case 'live':
+        return { label: 'TRWA DZIŚ', cls: 'bg-red-50 text-red-700 ring-1 ring-red-200', dot: 'bg-red-500 animate-pulse' };
+      case 'open':
+        return { label: 'ZAPISY OTWARTE', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200', dot: 'bg-emerald-500' };
+      case 'finished':
+        return { label: 'ZAKOŃCZONE', cls: 'bg-slate-100 text-slate-500 ring-1 ring-slate-200', dot: 'bg-slate-400' };
+      case 'cancelled':
+        return { label: 'ODWOŁANE', cls: 'bg-rose-50 text-rose-600 ring-1 ring-rose-200', dot: 'bg-rose-400' };
+      default:
+        return { label: 'NADCHODZĄCE', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200', dot: 'bg-blue-500' };
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans">
@@ -124,63 +179,113 @@ export default function Home() {
             <p className="text-slate-400 text-sm font-medium">Sprawdź ponownie wkrótce.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {meetings?.map((meeting) => (
-              <div
-                key={meeting.id}
-                className="group relative flex flex-col bg-white rounded-[2rem] overflow-hidden shadow-lg shadow-slate-200/60 border border-slate-100 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-blue-200/40"
-              >
-                {/* Card top accent */}
-                <div className="h-1.5 w-full bg-gradient-to-r from-blue-500 to-indigo-500 group-hover:from-blue-600 group-hover:to-violet-600 transition-all duration-500"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {sortedMeetings.map((meeting) => {
+              const state = getMeetingState(meeting);
+              const badge = getStateBadge(state);
+              const eventsCount = meeting.events?.length ?? 0;
+              const cityLabel = meeting.city || meeting.location;
+              const isFinished = state === 'finished' || state === 'cancelled';
+              const accent =
+                state === 'live'
+                  ? 'bg-red-500'
+                  : state === 'open'
+                  ? 'bg-emerald-500'
+                  : state === 'finished'
+                  ? 'bg-slate-300'
+                  : state === 'cancelled'
+                  ? 'bg-rose-400'
+                  : 'bg-blue-500';
 
-                <div className="flex flex-col flex-1 p-8 space-y-5">
-                  {/* Date badge */}
-                  <div className="flex items-center gap-2 text-blue-600 text-[10px] font-black uppercase tracking-widest">
-                    <div className="h-6 w-6 rounded-lg bg-blue-50 flex items-center justify-center">
-                      <Calendar className="h-3 w-3" />
+              return (
+                <article
+                  key={meeting.id}
+                  className={`group relative flex flex-col bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200 ${
+                    isFinished ? 'opacity-90' : ''
+                  }`}
+                >
+                  <div className="flex flex-col flex-1 p-6 space-y-4">
+                    {/* Top row: date capsule + status */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-50 ring-1 ring-slate-200 text-[11px] font-bold text-slate-700">
+                        <Calendar className="h-3 w-3 text-slate-400" />
+                        {formatDateRange(meeting)}
+                      </span>
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${badge.cls}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`}></span>
+                        {badge.label}
+                      </span>
                     </div>
-                    {new Date(meeting.date).toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })}
-                  </div>
 
-                  {/* Name */}
-                  <h3 className="text-xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors min-h-[60px]">
-                    {meeting.name}
-                  </h3>
+                    {/* Title + accent line */}
+                    <div>
+                      <h3 className="text-lg font-black text-slate-900 leading-snug tracking-tight line-clamp-2 min-h-[3.5rem] group-hover:text-blue-700 transition-colors">
+                        {meeting.name}
+                      </h3>
+                      <div className={`mt-3 h-0.5 w-10 rounded-full ${accent} group-hover:w-16 transition-all duration-300`}></div>
+                    </div>
 
-                  {/* Location */}
-                  <div className="flex items-center gap-2 text-slate-400 text-sm font-medium">
-                    <MapPin className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{meeting.location}</span>
-                  </div>
+                    {/* Info grid 2x2 */}
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-[13px]">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <MapPin className="h-3.5 w-3.5 text-slate-400 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Miejsce</dt>
+                          <dd className="font-semibold text-slate-700 truncate">{cityLabel}</dd>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 min-w-0">
+                        <ListChecks className="h-3.5 w-3.5 text-slate-400 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Konkurencje</dt>
+                          <dd className="font-semibold text-slate-700">{eventsCount > 0 ? eventsCount : '—'}</dd>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 min-w-0">
+                        <CircleDot className="h-3.5 w-3.5 text-slate-400 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Sezon</dt>
+                          <dd className="font-semibold text-slate-700">
+                            {meeting.season === 'INDOOR' ? 'Halowy' : 'Stadionowy'}
+                          </dd>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Trophy className="h-3.5 w-3.5 text-slate-400 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Status</dt>
+                          <dd className="font-semibold text-slate-700">{badge.label.charAt(0) + badge.label.slice(1).toLowerCase()}</dd>
+                        </div>
+                      </div>
+                    </dl>
 
-                  {/* Divider */}
-                  <div className="h-px w-full bg-slate-100"></div>
-
-                  {/* Actions */}
-                  <div className="mt-auto flex flex-col gap-2.5">
-                    <Link href={`/results/${meeting.id}`} className="w-full">
-                      <Button className="w-full bg-slate-900 hover:bg-blue-600 rounded-xl h-11 font-bold text-sm flex items-center justify-between px-5 transition-all duration-200">
-                        <span>Wyniki Live</span>
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                    {meeting.domtelOnlineUrl && (
-                      <a href={meeting.domtelOnlineUrl} target="_blank" rel="noreferrer" className="w-full">
-                        <Button variant="outline" className="w-full h-11 font-bold text-slate-600 hover:text-sky-700 hover:bg-sky-50 border-slate-200 hover:border-sky-200 rounded-xl text-sm transition-all">
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          Domtel Online
+                    {/* Action row */}
+                    <div className="mt-auto pt-3 border-t border-slate-100 flex items-center gap-2">
+                      <Link href={`/results/${meeting.id}`} className="flex-1">
+                        <Button className="w-full bg-slate-900 hover:bg-blue-600 rounded-lg h-10 font-bold text-[13px] flex items-center justify-between px-4 transition-colors">
+                          <span>{isFinished ? 'Wyniki' : 'Wyniki Live'}</span>
+                          <ChevronRight className="h-4 w-4" />
                         </Button>
-                      </a>
-                    )}
-                    <Link href={`/meetings/${meeting.id}/register`} className="w-full">
-                      <Button variant="ghost" className="w-full h-11 font-bold text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl text-sm transition-all">
-                        Zapisz się do zawodów
-                      </Button>
-                    </Link>
+                      </Link>
+                      {!isFinished && (
+                        <Link href={`/meetings/${meeting.id}/register`} title="Zapisz się">
+                          <Button variant="outline" size="icon" className="h-10 w-10 rounded-lg border-slate-200 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 hover:border-emerald-200">
+                            <UserPlus className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                      )}
+                      {meeting.domtelOnlineUrl && (
+                        <a href={meeting.domtelOnlineUrl} target="_blank" rel="noreferrer" title="Domtel Online">
+                          <Button variant="outline" size="icon" className="h-10 w-10 rounded-lg border-slate-200 text-slate-600 hover:text-sky-700 hover:bg-sky-50 hover:border-sky-200">
+                            <ExternalLink className="h-4 w-4" />
+                          </Button>
+                        </a>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
+                </article>
+              );
+            })}
           </div>
         )}
       </main>
