@@ -13,6 +13,7 @@ import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { GenerateStartListDto } from './dto/generate-start-list.dto';
+import { ApplySeedingDto } from './dto/apply-seeding.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -54,6 +55,16 @@ export class EventsController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.eventsService.remove(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Post(':id/seeding')
+  applySeeding(
+    @Param('id') id: string,
+    @Body() body: ApplySeedingDto,
+  ) {
+    return this.eventsService.applySeeding(id, body.entries);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

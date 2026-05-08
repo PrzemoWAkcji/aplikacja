@@ -608,6 +608,20 @@ export class EventsService {
     return order;
   }
 
+  async applySeeding(
+    id: string,
+    entries: Array<{ id: string; heat: number | null; lane: number | null }>,
+  ) {
+    const updates = entries.map((e) =>
+      this.prisma.entry.update({
+        where: { id: e.id },
+        data: { heat: e.heat, lane: e.lane },
+      }),
+    );
+    await this.prisma.$transaction(updates);
+    return { message: 'Seeding applied', count: updates.length };
+  }
+
   async clearSeeding(id: string) {
     return this.prisma.entry.updateMany({
       where: { eventId: id },
