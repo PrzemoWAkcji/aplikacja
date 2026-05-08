@@ -393,16 +393,16 @@ export default function PublicMeetingResultsPage() {
                 <div className="flex flex-col lg:flex-row gap-8">
 
                     {/* SIDEBAR: FULL SCHEDULE */}
-                    <aside className="w-full lg:w-80 flex-shrink-0 group">
-                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
+                    <aside className="w-full lg:w-80 flex-shrink-0 group lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:flex lg:flex-col">
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden lg:flex lg:flex-col lg:min-h-0 lg:flex-1">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between flex-shrink-0">
                                 <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-tight">
                                     <Clock className="h-4 w-4 text-blue-600" />
                                     Harmonogram
                                 </h3>
                                 <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded">LIVE</span>
                             </div>
-                            <div className="font-medium">
+                            <div className="font-medium overflow-y-auto lg:flex-1 scroller">
                                 {sortedEvents.length === 0 ? (
                                     <div className="p-8 text-center text-slate-400 text-sm italic">Brak zaplanowanych konkurencji</div>
                                 ) : (

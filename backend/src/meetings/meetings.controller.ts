@@ -39,6 +39,11 @@ export class MeetingsController {
     return this.meetingsService.findAll();
   }
 
+  @Get('public')
+  findAllPublic() {
+    return this.meetingsService.findAll();
+  }
+
   @Get('public/:id')
   findOnePublic(@Param('id') id: string) {
     return this.meetingsService.findOne(id);
