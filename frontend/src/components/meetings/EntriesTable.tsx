@@ -1041,9 +1041,13 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                     {entry.athleteName}
                                                                     <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity" />
                                                                 </a>
-                                                                {entry.isPk && (
-                                                                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 tracking-wide">PK</span>
-                                                                )}
+                                                                <button
+                                                                    onClick={() => updateEntryMutation.mutate({ id: entry.id, isPk: !entry.isPk })}
+                                                                    className={`mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-orange-50 hover:border-orange-400 hover:text-orange-600'}`}
+                                                                    title={entry.isPk ? 'Usuń status PK' : 'Oznacz jako Poza Konkursem (PK)'}
+                                                                >
+                                                                    PK
+                                                                </button>
                                                                 <div className="flex items-center gap-1.5 mt-0.5">
                                                                     <span className="text-[11px] text-slate-500 font-medium truncate max-w-[200px]">
                                                                         {entry.club || 'Brak klubu'}
@@ -1123,15 +1127,6 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                 disabled={isSearchingPzla}
                                                             >
                                                                 <CloudDownload className="h-4 w-4" />
-                                                            </button>
-                                                        </td>
-                                                        <td className="px-2 py-3 text-center">
-                                                            <button
-                                                                onClick={() => updateEntryMutation.mutate({ id: entry.id, isPk: !entry.isPk })}
-                                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-orange-50 hover:border-orange-400 hover:text-orange-600'}`}
-                                                                title={entry.isPk ? 'Usuń status PK' : 'Oznacz jako Poza Konkursem (PK)'}
-                                                            >
-                                                                PK
                                                             </button>
                                                         </td>
                                                         <td className="px-2 py-3 text-right">
