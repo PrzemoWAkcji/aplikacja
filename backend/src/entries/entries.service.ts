@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { CreateEntryDto } from './dto/create-entry.dto';
 import { UpdateEntryDto } from './dto/update-entry.dto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -224,6 +224,45 @@ export class EntriesService {
   remove(id: string) {
     return this.prisma.entry.delete({
       where: { id },
+    });
+  }
+
+  async moveToEvent(id: string, targetEventId: string) {
+    const entry = await this.prisma.entry.findUnique({
+      where: { id },
+      include: { event: { include: { meeting: true } } },
+    });
+    if (!entry) throw new NotFoundException('Zgłoszenie nie istnieje');
+
+    const targetEvent = await this.prisma.event.findUnique({
+      where: { id: targetEventId },
+    });
+    if (!targetEvent) throw new NotFoundException('Konkurencja docelowa nie istnieje');
+
+    if (entry.event.meetingId !== targetEvent.meetingId) {
+      throw new BadRequestException('Nie można przenieść zawodnika do innego zawodów');
+    }
+
+    // Gender check: allow only if genders match OR target event is MIX
+    const entryGender = entry.gender || entry.event.gender;
+    if (
+      targetEvent.gender !== 'MIX' &&
+      entryGender &&
+      entryGender !== 'MIX' &&
+      entryGender !== targetEvent.gender
+    ) {
+      throw new BadRequestException(
+        `Niezgodność płci: zawodnik (${entryGender}) i konkurencja docelowa (${targetEvent.gender})`,
+      );
+    }
+
+    return this.prisma.entry.update({
+      where: { id },
+      data: {
+        eventId: targetEventId,
+        heat: null,
+        lane: null,
+      },
     });
   }
 }

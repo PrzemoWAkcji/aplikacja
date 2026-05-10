@@ -8,6 +8,8 @@ import {
   Delete,
   Query,
   UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { EntriesService } from './entries.service';
 import { CreateEntryDto } from './dto/create-entry.dto';
@@ -56,6 +58,17 @@ export class EntriesController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateEntryDto: UpdateEntryDto) {
     return this.entriesService.update(id, updateEntryDto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ORGANIZER, Role.ADMIN)
+  @Post(':id/move')
+  @HttpCode(HttpStatus.OK)
+  moveToEvent(
+    @Param('id') id: string,
+    @Body('targetEventId') targetEventId: string,
+  ) {
+    return this.entriesService.moveToEvent(id, targetEventId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

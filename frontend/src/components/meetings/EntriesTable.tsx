@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Users, FileText, ClipboardList, ArrowUpDown, Trash, LayoutGrid, Zap, RotateCcw, Printer, CloudDownload, Search, ExternalLink, Settings, Calendar, ChevronsRight } from 'lucide-react';
+import { X, Users, FileText, ClipboardList, ArrowUpDown, Trash, LayoutGrid, Zap, RotateCcw, Printer, CloudDownload, Search, ExternalLink, Settings, Calendar, ChevronsRight, ArrowRight } from 'lucide-react';
 import { getAgeCategory, CATEGORY_COLORS } from '../../lib/ageCategory';
 import api from '../../lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
@@ -407,6 +407,26 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
     const [isPzlaModalOpen, setIsPzlaModalOpen] = useState(false);
     const [targetEntryId, setTargetEntryId] = useState<string | null>(null); // null = new entry form
     const [isSearchingPzla, setIsSearchingPzla] = useState(false);
+
+    // Move entry state
+    const [moveEntryId, setMoveEntryId] = useState<string | null>(null);
+    const [moveTargetEventId, setMoveTargetEventId] = useState('');
+    const moveEntryName = entries?.find(e => e.id === moveEntryId)?.athleteName || '';
+
+    const moveMutation = useMutation({
+        mutationFn: async ({ entryId, targetEventId }: { entryId: string; targetEventId: string }) => {
+            return api.post(`/entries/${entryId}/move`, { targetEventId });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['entries', selectedEventId] });
+            queryClient.invalidateQueries({ queryKey: ['entries'] });
+            setMoveEntryId(null);
+            setMoveTargetEventId('');
+        },
+        onError: (err: any) => {
+            alert(err?.response?.data?.message || 'Błąd podczas przenoszenia zawodnika');
+        },
+    });
 
     const repairMojibake = (value: string): string => {
         return value
@@ -1099,14 +1119,26 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                             </button>
                                                         </td>
                                                         <td className="px-2 py-3 text-right">
-                                                            <button
-                                                                onClick={() => {
-                                                                    if (confirm('Usunąć zawodnika?')) deleteMutation.mutate(entry.id);
-                                                                }}
-                                                                className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100"
-                                                            >
-                                                                <Trash className="h-4 w-4" />
-                                                            </button>
+                                                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setMoveEntryId(entry.id);
+                                                                        setMoveTargetEventId('');
+                                                                    }}
+                                                                    className="p-1.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all"
+                                                                    title="Przenieś do innej konkurencji"
+                                                                >
+                                                                    <ArrowRight className="h-4 w-4" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (confirm('Usunąć zawodnika?')) deleteMutation.mutate(entry.id);
+                                                                    }}
+                                                                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                                                                >
+                                                                    <Trash className="h-4 w-4" />
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -1135,17 +1167,80 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                 </a>
                                                 <span className="text-xs text-slate-500">{entry.club}</span>
                                             </div>
-                                            <button
-                                                onClick={() => deleteMutation.mutate(entry.id)}
-                                                className="text-slate-300 hover:text-red-500"
-                                            >
-                                                <Trash className="h-4 w-4" />
-                                            </button>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={() => {
+                                                        setMoveEntryId(entry.id);
+                                                        setMoveTargetEventId('');
+                                                    }}
+                                                    className="text-slate-300 hover:text-blue-500"
+                                                    title="Przenieś do innej konkurencji"
+                                                >
+                                                    <ArrowRight className="h-4 w-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => deleteMutation.mutate(entry.id)}
+                                                    className="text-slate-300 hover:text-red-500"
+                                                >
+                                                    <Trash className="h-4 w-4" />
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {moveEntryId && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                                <h3 className="font-bold text-slate-800">Przenieś zawodnika</h3>
+                                <button onClick={() => setMoveEntryId(null)} className="text-slate-400 hover:text-slate-600">
+                                    <X className="h-5 w-5" />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <p className="text-sm text-slate-600">
+                                    Przeniesienie: <span className="font-bold text-slate-800">{moveEntryName}</span>
+                                </p>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Konkurencja docelowa</label>
+                                    <select
+                                        className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                                        value={moveTargetEventId}
+                                        onChange={(e) => setMoveTargetEventId(e.target.value)}
+                                    >
+                                        <option value="">— wybierz —</option>
+                                        {(meeting.events as any[] || [])
+                                            .filter((ev: any) => ev.id !== selectedEventId)
+                                            .map((ev: any) => (
+                                                <option key={ev.id} value={ev.id}>{ev.name}</option>
+                                            ))
+                                        }
+                                    </select>
+                                </div>
+                                <p className="text-[11px] text-slate-400">
+                                    Zawodnik zostanie przeniesiony bez przypisania do serii i toru. Przeniesienie możliwe tylko do konkurencji tej samej płci lub MIX.
+                                </p>
+                                <div className="flex justify-end gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => setMoveEntryId(null)}>
+                                        Anuluj
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                                        disabled={!moveTargetEventId || moveMutation.isPending}
+                                        onClick={() => moveMutation.mutate({ entryId: moveEntryId, targetEventId: moveTargetEventId })}
+                                    >
+                                        <ArrowRight className="h-4 w-4 mr-1" />
+                                        {moveMutation.isPending ? 'Przenoszenie...' : 'Przenieś'}
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
 
