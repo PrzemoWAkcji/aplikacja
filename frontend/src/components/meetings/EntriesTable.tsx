@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Users, FileText, ClipboardList, ArrowUpDown, Trash, LayoutGrid, Zap, RotateCcw, Printer, CloudDownload, Search, ExternalLink, Settings, Calendar, ChevronsRight, ArrowRight } from 'lucide-react';
+import { X, Users, FileText, ClipboardList, ArrowUpDown, Trash, LayoutGrid, Zap, RotateCcw, Printer, CloudDownload, Search, ExternalLink, Settings, Calendar, ChevronsRight, ArrowRightLeft } from 'lucide-react';
 import { getAgeCategory, CATEGORY_COLORS } from '../../lib/ageCategory';
 import api from '../../lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
@@ -26,6 +26,7 @@ interface Entry {
     sb?: string;
     yearOfBirth?: number;
     dateOfBirth?: string | Date;
+    gender?: string;
 
     tilastopajaId?: string; // We use this to store PZLA ID
     relaySquad?: string | any[]; // JSON string or array
@@ -411,7 +412,9 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
     // Move entry state
     const [moveEntryId, setMoveEntryId] = useState<string | null>(null);
     const [moveTargetEventId, setMoveTargetEventId] = useState('');
-    const moveEntryName = entries?.find(e => e.id === moveEntryId)?.athleteName || '';
+    const moveEntry = entries?.find(e => e.id === moveEntryId);
+    const moveEntryName = moveEntry?.athleteName || '';
+    const moveEntryGender = moveEntry?.gender || event?.gender || null;
 
     const moveMutation = useMutation({
         mutationFn: async ({ entryId, targetEventId }: { entryId: string; targetEventId: string }) => {
@@ -1125,10 +1128,10 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                         setMoveEntryId(entry.id);
                                                                         setMoveTargetEventId('');
                                                                     }}
-                                                                    className="p-1.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all"
+                                                                    className="p-1.5 text-blue-400 hover:text-white hover:bg-blue-500 rounded transition-all"
                                                                     title="Przenieś do innej konkurencji"
                                                                 >
-                                                                    <ArrowRight className="h-4 w-4" />
+                                                                    <ArrowRightLeft className="h-4 w-4" />
                                                                 </button>
                                                                 <button
                                                                     onClick={() => {
@@ -1173,10 +1176,10 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                         setMoveEntryId(entry.id);
                                                         setMoveTargetEventId('');
                                                     }}
-                                                    className="text-slate-300 hover:text-blue-500"
+                                                    className="text-blue-400 hover:text-white hover:bg-blue-500 rounded p-1 transition-all"
                                                     title="Przenieś do innej konkurencji"
                                                 >
-                                                    <ArrowRight className="h-4 w-4" />
+                                                    <ArrowRightLeft className="h-4 w-4" />
                                                 </button>
                                                 <button
                                                     onClick={() => deleteMutation.mutate(entry.id)}
@@ -1215,7 +1218,11 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                     >
                                         <option value="">— wybierz —</option>
                                         {(meeting.events as any[] || [])
-                                            .filter((ev: any) => ev.id !== selectedEventId)
+                                            .filter((ev: any) => {
+                                                if (ev.id === selectedEventId) return false;
+                                                if (!moveEntryGender || moveEntryGender === 'MIX') return true;
+                                                return ev.gender === moveEntryGender || ev.gender === 'MIX';
+                                            })
                                             .map((ev: any) => (
                                                 <option key={ev.id} value={ev.id}>{ev.name}</option>
                                             ))
@@ -1235,7 +1242,7 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                         disabled={!moveTargetEventId || moveMutation.isPending}
                                         onClick={() => moveMutation.mutate({ entryId: moveEntryId, targetEventId: moveTargetEventId })}
                                     >
-                                        <ArrowRight className="h-4 w-4 mr-1" />
+                                        <ArrowRightLeft className="h-4 w-4 mr-1" />
                                         {moveMutation.isPending ? 'Przenoszenie...' : 'Przenieś'}
                                     </Button>
                                 </div>
