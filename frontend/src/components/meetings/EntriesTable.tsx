@@ -1128,7 +1128,7 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                         <td className="px-2 py-3 text-center">
                                                             <button
                                                                 onClick={() => updateEntryMutation.mutate({ id: entry.id, isPk: !entry.isPk })}
-                                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'text-slate-300 border-slate-200 hover:border-orange-300 hover:text-orange-500'}`}
+                                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-orange-50 hover:border-orange-400 hover:text-orange-600'}`}
                                                                 title={entry.isPk ? 'Usuń status PK' : 'Oznacz jako Poza Konkursem (PK)'}
                                                             >
                                                                 PK
