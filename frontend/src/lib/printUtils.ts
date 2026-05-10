@@ -350,7 +350,7 @@ const renderStartListTable = (entriesList: any[], eventType: string) => {
             <td style="text-align: center; font-weight: 700; font-size: 12px;">${order}</td>
             <td style="text-align: center; font-weight: 700;">${e.bib || ''}</td>
             <td>
-                <div class="athlete-name">${e.athleteName}</div>
+                <div class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}</div>
             </td>
             <td style="text-align: center;">${dob}</td>
             <td class="col-club">${e.club || ''} ${e.countryCode ? `(${e.countryCode})` : ''}</td>
@@ -399,7 +399,7 @@ const renderTrackProtocolTable = (entriesList: any[]) => {
         content += `<tr>
             <td style="text-align: center; font-weight: bold; font-size: 12px; height: 30px;">${e.lane || ''}</td>
             <td style="text-align: center; font-weight: bold;">${e.bib || ''}</td>
-            <td><div class="athlete-name">${e.athleteName}</div></td>
+            <td><div class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}</div></td>
             <td style="text-align: center;">${year}</td>
             <td style="text-align: left; font-size: 9px;">${e.club || ''}</td>
             <td></td>
@@ -485,7 +485,7 @@ const renderFieldProtocolTable = (entriesList: any[], event: any, type: 'HORIZON
                     <td style="text-align: center; font-weight: 900; height: 42px;">${lp}</td>
                     <td style="text-align: center; font-weight: 900;">${e.bib || ''}</td>
                     <td style="text-align: left; padding: 2px 5px !important;">
-                        <span class="athlete-name">${e.athleteName}</span>
+                        <span class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}</span>
                         <span class="athlete-meta" style="font-style:italic;">${e.club || ''}</span>
                     </td>
                     <td style="text-align: center;">${dob}</td>
@@ -544,7 +544,7 @@ const renderFieldProtocolTable = (entriesList: any[], event: any, type: 'HORIZON
                 <td style="text-align: center; font-weight: 900; height: 42px;">${lp}</td>
                 <td style="text-align: center; font-weight: 900;">${e.bib || ''}</td>
                 <td style="text-align: left; padding: 2px 5px !important;">
-                    <span class="athlete-name">${e.athleteName}</span>
+                    <span class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}</span>
                     <span class="athlete-meta" style="font-style:italic;">${e.club || ''}</span>
                 </td>
                 <td style="text-align: center;">${dob}</td>
@@ -625,7 +625,7 @@ const renderFieldProtocolTable = (entriesList: any[], event: any, type: 'HORIZON
                 <td style="text-align: center; font-weight: 900; height: 42px;">${lp}</td>
                 <td style="text-align: center; font-weight: 900;">${e.bib || ''}</td>
                 <td style="text-align: left; padding: 2px 5px !important;">
-                    <span class="athlete-name">${e.athleteName}</span>
+                    <span class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}</span>
                     <span class="athlete-meta">${e.club || ''}</span>
                 </td>
                 <td style="text-align: center;">${dob}</td>

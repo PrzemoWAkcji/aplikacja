@@ -1043,7 +1043,7 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                 </a>
                                                                 <button
                                                                     onClick={() => updateEntryMutation.mutate({ id: entry.id, isPk: !entry.isPk })}
-                                                                    className={`mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-orange-50 hover:border-orange-400 hover:text-orange-600'}`}
+                                                                    className={`mt-0.5 w-fit self-start px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-orange-50 hover:border-orange-400 hover:text-orange-600'}`}
                                                                     title={entry.isPk ? 'Usuń status PK' : 'Oznacz jako Poza Konkursem (PK)'}
                                                                 >
                                                                     PK
