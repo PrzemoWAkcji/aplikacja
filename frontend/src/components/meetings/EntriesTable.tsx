@@ -27,6 +27,7 @@ interface Entry {
     yearOfBirth?: number;
     dateOfBirth?: string | Date;
     gender?: string;
+    isPk?: boolean;
 
     tilastopajaId?: string; // We use this to store PZLA ID
     relaySquad?: string | any[]; // JSON string or array
@@ -201,7 +202,7 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
     });
 
     const updateEntryMutation = useMutation({
-        mutationFn: async ({ id, ...data }: { id: string; heat?: number | null; lane?: number | null; bib?: string; pb?: string; sb?: string; tilastopajaId?: string; relaySquad?: string }) => {
+        mutationFn: async ({ id, ...data }: { id: string; heat?: number | null; lane?: number | null; bib?: string; pb?: string; sb?: string; tilastopajaId?: string; relaySquad?: string; isPk?: boolean }) => {
             return api.patch(`/entries/${id}`, data);
         },
         onSuccess: () => {
@@ -1040,6 +1041,9 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                     {entry.athleteName}
                                                                     <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity" />
                                                                 </a>
+                                                                {entry.isPk && (
+                                                                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 tracking-wide">PK</span>
+                                                                )}
                                                                 <div className="flex items-center gap-1.5 mt-0.5">
                                                                     <span className="text-[11px] text-slate-500 font-medium truncate max-w-[200px]">
                                                                         {entry.club || 'Brak klubu'}
@@ -1123,6 +1127,13 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                         </td>
                                                         <td className="px-2 py-3 text-right">
                                                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                                                <button
+                                                                    onClick={() => updateEntryMutation.mutate({ id: entry.id, isPk: !entry.isPk })}
+                                                                    className={`p-1 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'text-orange-400 border-orange-200 hover:bg-orange-50 hover:text-orange-600'}`}
+                                                                    title={entry.isPk ? 'Usuń status PK' : 'Oznacz jako Poza Konkursem (PK)'}
+                                                                >
+                                                                    PK
+                                                                </button>
                                                                 <button
                                                                     onClick={() => {
                                                                         setMoveEntryId(entry.id);

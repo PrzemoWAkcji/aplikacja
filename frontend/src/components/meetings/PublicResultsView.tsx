@@ -79,6 +79,7 @@ interface Result {
         sb?: string;
         yearOfBirth?: number;
         dateOfBirth?: string | Date;
+        isPk?: boolean;
     };
 }
 
@@ -258,7 +259,8 @@ interface ResultTableRowProps {
 }
 
 function ResultTableRow({ result, rank, isField, isVertical, isHorizontalJump, showAllAttempts, requiresWind, hasPoints, roundCount, meetingSeason }: ResultTableRowProps) {
-    const isMedal = rank <= 3 && result.status !== 'START_LIST';
+    const isPk = result.entry.isPk;
+    const isMedal = !isPk && rank <= 3 && result.status !== 'START_LIST';
     const isStartList = result.status === 'START_LIST';
     const fieldCards = isField ? getFieldAttemptCards(result, roundCount) : [];
     const verticalCards = isVertical ? getVerticalAttemptCards(result) : [];
@@ -275,13 +277,19 @@ function ResultTableRow({ result, rank, isField, isVertical, isHorizontalJump, s
                     rank === 3 && !isStartList ? 'bg-orange-50/30' : ''
                 } ${isStartList ? 'opacity-80' : ''}`}>
             <td className="px-5 py-4 text-center">
-                <div className={`flex items-center justify-center h-8 w-8 mx-auto rounded-full font-black text-xs shadow-sm ${rank === 1 && !isStartList ? 'bg-yellow-400 text-yellow-900 border-2 border-white' :
-                    rank === 2 && !isStartList ? 'bg-slate-300 text-slate-800 border-2 border-white' :
-                        rank === 3 && !isStartList ? 'bg-orange-300 text-orange-900 border-2 border-white' :
-                            'bg-white text-slate-400 border border-slate-100'
-                    }`}>
-                    {rank || '-'}
-                </div>
+                {isPk ? (
+                    <div className="flex items-center justify-center h-8 w-8 mx-auto rounded-full font-black text-[10px] shadow-sm bg-orange-100 text-orange-600 border border-orange-200">
+                        PK
+                    </div>
+                ) : (
+                    <div className={`flex items-center justify-center h-8 w-8 mx-auto rounded-full font-black text-xs shadow-sm ${rank === 1 && !isStartList ? 'bg-yellow-400 text-yellow-900 border-2 border-white' :
+                        rank === 2 && !isStartList ? 'bg-slate-300 text-slate-800 border-2 border-white' :
+                            rank === 3 && !isStartList ? 'bg-orange-300 text-orange-900 border-2 border-white' :
+                                'bg-white text-slate-400 border border-slate-100'
+                        }`}>
+                        {rank || '-'}
+                    </div>
+                )}
             </td>
             {!result.isOverall && (
                 <td className="px-5 py-4 text-center font-bold text-slate-400 text-xs">
@@ -719,9 +727,13 @@ export default function PublicResultsView({ eventId, eventName, model, eventCode
                                 <table className="w-full text-sm">
                                     <ResultsTableHeader isOverall={isOverall} isField={isField} hasPoints={hasPoints} />
                                     <tbody className="divide-y divide-slate-50">
-                                        {processedResults.data.map((r: Result, idx: number) => (
-                                            <ResultTableRow key={r.id} result={r} rank={r.place || idx + 1} isField={isField} isVertical={isVertical} isHorizontalJump={isHorizontalJump} showAllAttempts={showAllAttempts} requiresWind={requiresWind} hasPoints={hasPoints} roundCount={roundCount} meetingSeason={meetingSeason} />
-                                        ))}
+                                        {(() => {
+                                            let rankCounter = 0;
+                                            return processedResults.data.map((r: Result) => {
+                                                const rank = r.entry.isPk ? 0 : (r.place || ++rankCounter);
+                                                return <ResultTableRow key={r.id} result={r} rank={rank} isField={isField} isVertical={isVertical} isHorizontalJump={isHorizontalJump} showAllAttempts={showAllAttempts} requiresWind={requiresWind} hasPoints={hasPoints} roundCount={roundCount} meetingSeason={meetingSeason} />;
+                                            });
+                                        })()}
                                     </tbody>
                                 </table>
                             </CardContent>

@@ -162,6 +162,7 @@ model Entry {
   // Race assignment
   heat           Int?
   lane           Int?
+  isPk           Boolean     @default(false) // Poza Konkursem — nie liczy się do rankingu
 
   // Relations
   event          Event       @relation(fields: [eventId], references: [id])

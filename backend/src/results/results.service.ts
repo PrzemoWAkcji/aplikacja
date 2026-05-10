@@ -234,7 +234,8 @@ export class ResultsService {
       if (result) {
         return {
           ...result,
-          points,
+          place: entry.isPk ? null : result.place,
+          points: entry.isPk ? null : points,
           entry: entryData,
         };
       }

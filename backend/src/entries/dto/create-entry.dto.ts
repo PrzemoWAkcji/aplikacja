@@ -9,6 +9,7 @@ import {
   IsInt,
   Min,
   Max,
+  IsBoolean,
 } from 'class-validator';
 
 const VALID_STATUSES: EntryStatus[] = ['PENDING', 'CONFIRMED', 'SCRATCHED'];
@@ -116,4 +117,8 @@ export class CreateEntryDto {
   @IsString()
   @MaxLength(2000)
   relaySquad?: string; // JSON array of relay members
+
+  @IsOptional()
+  @IsBoolean()
+  isPk?: boolean;
 }
