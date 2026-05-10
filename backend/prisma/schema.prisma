@@ -215,7 +215,8 @@ model Result {
   fieldJSON      String?  // JSON array of attempts: ["12.45", "X", "13.01", ...]
   
   // Status
-  status         String   @default("OK") // OK, DNS, DNF, DQ, NM
+  status         String   @default("OK") // OK, DNS, DNF, DQ, NM, NH
+  dqReason       String?  // Powód dyskwalifikacji (np. W/A Rule 162.5)
   points         Int?
 
   // Split times (intermediate times for distance events)

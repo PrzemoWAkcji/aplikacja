@@ -14,6 +14,12 @@ import SeedingDnD from './SeedingDnD';
 import RelaySquadEditor from './RelaySquadEditor';
 import { isFieldEvent, isMultiEvent, isRelayEvent, isVerticalEvent, eventRequiresWind } from '../../lib/utils';
 
+interface EntryResult {
+    id: string;
+    status: string;
+    dqReason?: string | null;
+}
+
 interface Entry {
     id: string;
     athleteName: string;
@@ -28,6 +34,7 @@ interface Entry {
     dateOfBirth?: string | Date;
     gender?: string;
     isPk?: boolean;
+    result?: EntryResult | null;
 
     tilastopajaId?: string; // We use this to store PZLA ID
     relaySquad?: string | any[]; // JSON string or array
@@ -160,6 +167,20 @@ const serializeHeightsPlan = (rawInput?: string | null): string | null => {
     return values.length > 0 ? JSON.stringify(values) : null;
 };
 
+const RESULT_STATUSES = [
+    { value: 'OK', label: 'OK', color: 'bg-slate-100 text-slate-500 border-slate-200' },
+    { value: 'DNS', label: 'DNS', color: 'bg-slate-200 text-slate-700 border-slate-300' },
+    { value: 'DNF', label: 'DNF', color: 'bg-orange-100 text-orange-700 border-orange-300' },
+    { value: 'DQ', label: 'DQ', color: 'bg-red-100 text-red-700 border-red-300' },
+    { value: 'NM', label: 'NM', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+    { value: 'NH', label: 'NH', color: 'bg-purple-100 text-purple-700 border-purple-300' },
+];
+
+const getStatusStyle = (status?: string) => {
+    const s = RESULT_STATUSES.find(r => r.value === status?.toUpperCase());
+    return s ?? RESULT_STATUSES[0];
+};
+
 export default function EntriesTable({ meeting, selectedEventId, event, eventStage }: EntriesTableProps) {
     const eventName = event?.name || '';
     const queryClient = useQueryClient();
@@ -208,6 +229,22 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['entries', selectedEventId] });
         }
+    });
+
+    const [statusEditId, setStatusEditId] = useState<string | null>(null);
+    const [dqReasonInput, setDqReasonInput] = useState('');
+
+    const setResultStatusMutation = useMutation({
+        mutationFn: async ({ entryId, status, dqReason }: { entryId: string; status: string; dqReason?: string }) => {
+            const resultId = `placeholder-${entryId}`;
+            return api.patch(`/results/${resultId}`, { status, dqReason: dqReason ?? null });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['entries', selectedEventId] });
+            setStatusEditId(null);
+            setDqReasonInput('');
+        },
+        onError: (err: any) => alert(err?.response?.data?.message || 'Błąd zapisu statusu'),
     });
 
     const splitMutation = useMutation({
@@ -1041,13 +1078,75 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                     {entry.athleteName}
                                                                     <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity" />
                                                                 </a>
-                                                                <button
-                                                                    onClick={() => updateEntryMutation.mutate({ id: entry.id, isPk: !entry.isPk })}
-                                                                    className={`mt-0.5 w-fit self-start px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-orange-50 hover:border-orange-400 hover:text-orange-600'}`}
-                                                                    title={entry.isPk ? 'Usuń status PK' : 'Oznacz jako Poza Konkursem (PK)'}
-                                                                >
-                                                                    PK
-                                                                </button>
+                                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                                    <button
+                                                                        onClick={() => updateEntryMutation.mutate({ id: entry.id, isPk: !entry.isPk })}
+                                                                        className={`w-fit px-1.5 py-0.5 rounded text-[10px] font-black tracking-wide transition-all border ${entry.isPk ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600' : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-orange-50 hover:border-orange-400 hover:text-orange-600'}`}
+                                                                        title={entry.isPk ? 'Usuń status PK' : 'Oznacz jako Poza Konkursem (PK)'}
+                                                                    >
+                                                                        PK
+                                                                    </button>
+                                                                    {(() => {
+                                                                        const rs = entry.result?.status?.toUpperCase();
+                                                                        const sStyle = getStatusStyle(rs);
+                                                                        if (statusEditId === entry.id) {
+                                                                            return (
+                                                                                <div className="flex flex-col gap-1">
+                                                                                    <div className="flex items-center gap-1 flex-wrap">
+                                                                                        {RESULT_STATUSES.map(s => (
+                                                                                            <button
+                                                                                                key={s.value}
+                                                                                                onClick={() => {
+                                                                                                    if (s.value === 'DQ') return; // handled below
+                                                                                                    setResultStatusMutation.mutate({ entryId: entry.id, status: s.value });
+                                                                                                }}
+                                                                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all ${s.color} ${rs === s.value ? 'ring-2 ring-offset-1 ring-slate-400' : 'opacity-70 hover:opacity-100'}`}
+                                                                                            >
+                                                                                                {s.label}
+                                                                                            </button>
+                                                                                        ))}
+                                                                                        <button onClick={() => { setStatusEditId(null); setDqReasonInput(''); }} className="text-[10px] text-slate-400 hover:text-slate-600 ml-1">✕</button>
+                                                                                    </div>
+                                                                                    {(rs === 'DQ' || dqReasonInput !== '') && (
+                                                                                        <div className="flex items-center gap-1">
+                                                                                            <input
+                                                                                                type="text"
+                                                                                                value={dqReasonInput}
+                                                                                                onChange={e => setDqReasonInput(e.target.value)}
+                                                                                                placeholder="Powód DQ (np. W/A Rule 162.5)"
+                                                                                                className="text-[10px] border border-red-200 rounded px-1.5 py-0.5 w-48 focus:outline-none focus:ring-1 focus:ring-red-400"
+                                                                                            />
+                                                                                            <button
+                                                                                                onClick={() => setResultStatusMutation.mutate({ entryId: entry.id, status: 'DQ', dqReason: dqReasonInput })}
+                                                                                                className="px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 border border-red-300 hover:bg-red-200"
+                                                                                            >
+                                                                                                DQ
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        }
+                                                                        if (!rs || rs === 'OK') return (
+                                                                            <button
+                                                                                onClick={() => { setStatusEditId(entry.id); setDqReasonInput(entry.result?.dqReason || ''); }}
+                                                                                className="px-1.5 py-0.5 rounded text-[10px] font-black border bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200 hover:text-slate-600 transition-all"
+                                                                                title="Ustaw status (DNS/DNF/DQ/NM/NH)"
+                                                                            >
+                                                                                Status
+                                                                            </button>
+                                                                        );
+                                                                        return (
+                                                                            <button
+                                                                                onClick={() => { setStatusEditId(entry.id); setDqReasonInput(entry.result?.dqReason || ''); }}
+                                                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all ${sStyle.color}`}
+                                                                                title={rs === 'DQ' && entry.result?.dqReason ? entry.result.dqReason : 'Kliknij aby zmienić status'}
+                                                                            >
+                                                                                {rs}{rs === 'DQ' && entry.result?.dqReason ? ' ⓘ' : ''}
+                                                                            </button>
+                                                                        );
+                                                                    })()}
+                                                                </div>
                                                                 <div className="flex items-center gap-1.5 mt-0.5">
                                                                     <span className="text-[11px] text-slate-500 font-medium truncate max-w-[200px]">
                                                                         {entry.club || 'Brak klubu'}

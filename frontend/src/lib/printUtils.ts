@@ -346,11 +346,16 @@ const renderStartListTable = (entriesList: any[], eventType: string) => {
         const order = isTrack ? (e.lane || '-') : (idx + 1);
         const dob = e.dateOfBirth ? new Date(e.dateOfBirth).toLocaleDateString('pl-PL') : (e.yearOfBirth || '');
 
+        const resultStatus = e.result?.status?.toUpperCase();
+        const dqReason = e.result?.dqReason;
+        const statusBadge = resultStatus && resultStatus !== 'OK'
+            ? ` <span style="background:${resultStatus === 'DQ' ? '#fee2e2' : resultStatus === 'DNS' ? '#f1f5f9' : resultStatus === 'DNF' ? '#ffedd5' : '#dbeafe'};color:${resultStatus === 'DQ' ? '#991b1b' : resultStatus === 'DNS' ? '#334155' : resultStatus === 'DNF' ? '#9a3412' : '#1e40af'};font-size:9px;font-weight:900;padding:1px 5px;border-radius:3px;border:1px solid currentColor;">${resultStatus}</span>${dqReason ? ` <span style="font-size:9px;color:#666;font-style:italic;">(${dqReason})</span>` : ''}`
+            : '';
         html += `<tr>
             <td style="text-align: center; font-weight: 700; font-size: 12px;">${order}</td>
             <td style="text-align: center; font-weight: 700;">${e.bib || ''}</td>
             <td>
-                <div class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}</div>
+                <div class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}${statusBadge}</div>
             </td>
             <td style="text-align: center;">${dob}</td>
             <td class="col-club">${e.club || ''} ${e.countryCode ? `(${e.countryCode})` : ''}</td>
@@ -396,10 +401,13 @@ const renderTrackProtocolTable = (entriesList: any[]) => {
         }
 
         const year = e.dateOfBirth ? new Date(e.dateOfBirth).getFullYear() : (e.yearOfBirth || '');
+        const rSt = e.result?.status?.toUpperCase();
+        const rDq = e.result?.dqReason;
+        const rBadge = rSt && rSt !== 'OK' ? ` <span style="background:${rSt === 'DQ' ? '#fee2e2' : '#f1f5f9'};color:${rSt === 'DQ' ? '#991b1b' : '#334155'};font-size:9px;font-weight:900;padding:1px 5px;border-radius:3px;">${rSt}${rDq ? ` (${rDq})` : ''}</span>` : '';
         content += `<tr>
             <td style="text-align: center; font-weight: bold; font-size: 12px; height: 30px;">${e.lane || ''}</td>
             <td style="text-align: center; font-weight: bold;">${e.bib || ''}</td>
-            <td><div class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}</div></td>
+            <td><div class="athlete-name">${e.athleteName}${e.isPk ? ' <span style="background:#fed7aa;color:#9a3412;font-size:9px;font-weight:900;padding:1px 4px;border-radius:3px;border:1px solid #fdba74;">PK</span>' : ''}${rBadge}</div></td>
             <td style="text-align: center;">${year}</td>
             <td style="text-align: left; font-size: 9px;">${e.club || ''}</td>
             <td></td>

@@ -197,8 +197,9 @@ export class EntriesService {
   }
 
   findByEvent(eventId: string) {
-    return this.prisma.entry.findMany({
+    return (this.prisma as any).entry.findMany({
       where: { eventId },
+      include: { result: { select: { id: true, status: true, dqReason: true } } },
     });
   }
 
