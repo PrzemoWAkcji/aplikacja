@@ -170,10 +170,6 @@ const serializeHeightsPlan = (rawInput?: string | null): string | null => {
 const RESULT_STATUSES = [
     { value: 'OK', label: 'OK', color: 'bg-slate-100 text-slate-500 border-slate-200' },
     { value: 'DNS', label: 'DNS', color: 'bg-slate-200 text-slate-700 border-slate-300' },
-    { value: 'DNF', label: 'DNF', color: 'bg-orange-100 text-orange-700 border-orange-300' },
-    { value: 'DQ', label: 'DQ', color: 'bg-red-100 text-red-700 border-red-300' },
-    { value: 'NM', label: 'NM', color: 'bg-blue-100 text-blue-700 border-blue-300' },
-    { value: 'NH', label: 'NH', color: 'bg-purple-100 text-purple-700 border-purple-300' },
 ];
 
 const getStatusStyle = (status?: string) => {
@@ -1091,58 +1087,36 @@ export default function EntriesTable({ meeting, selectedEventId, event, eventSta
                                                                         const sStyle = getStatusStyle(rs);
                                                                         if (statusEditId === entry.id) {
                                                                             return (
-                                                                                <div className="flex flex-col gap-1">
-                                                                                    <div className="flex items-center gap-1 flex-wrap">
-                                                                                        {RESULT_STATUSES.map(s => (
-                                                                                            <button
-                                                                                                key={s.value}
-                                                                                                onClick={() => {
-                                                                                                    if (s.value === 'DQ') return; // handled below
-                                                                                                    setResultStatusMutation.mutate({ entryId: entry.id, status: s.value });
-                                                                                                }}
-                                                                                                className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all ${s.color} ${rs === s.value ? 'ring-2 ring-offset-1 ring-slate-400' : 'opacity-70 hover:opacity-100'}`}
-                                                                                            >
-                                                                                                {s.label}
-                                                                                            </button>
-                                                                                        ))}
-                                                                                        <button onClick={() => { setStatusEditId(null); setDqReasonInput(''); }} className="text-[10px] text-slate-400 hover:text-slate-600 ml-1">✕</button>
-                                                                                    </div>
-                                                                                    {(rs === 'DQ' || dqReasonInput !== '') && (
-                                                                                        <div className="flex items-center gap-1">
-                                                                                            <input
-                                                                                                type="text"
-                                                                                                value={dqReasonInput}
-                                                                                                onChange={e => setDqReasonInput(e.target.value)}
-                                                                                                placeholder="Powód DQ (np. W/A Rule 162.5)"
-                                                                                                className="text-[10px] border border-red-200 rounded px-1.5 py-0.5 w-48 focus:outline-none focus:ring-1 focus:ring-red-400"
-                                                                                            />
-                                                                                            <button
-                                                                                                onClick={() => setResultStatusMutation.mutate({ entryId: entry.id, status: 'DQ', dqReason: dqReasonInput })}
-                                                                                                className="px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 border border-red-300 hover:bg-red-200"
-                                                                                            >
-                                                                                                DQ
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    )}
+                                                                                <div className="flex items-center gap-1">
+                                                                                    {RESULT_STATUSES.map(s => (
+                                                                                        <button
+                                                                                            key={s.value}
+                                                                                            onClick={() => setResultStatusMutation.mutate({ entryId: entry.id, status: s.value })}
+                                                                                            className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all ${s.color} ${rs === s.value ? 'ring-2 ring-offset-1 ring-slate-400' : 'opacity-70 hover:opacity-100'}`}
+                                                                                        >
+                                                                                            {s.label}
+                                                                                        </button>
+                                                                                    ))}
+                                                                                    <button onClick={() => setStatusEditId(null)} className="text-[10px] text-slate-400 hover:text-slate-600 ml-1">✕</button>
                                                                                 </div>
                                                                             );
                                                                         }
                                                                         if (!rs || rs === 'OK') return (
                                                                             <button
-                                                                                onClick={() => { setStatusEditId(entry.id); setDqReasonInput(entry.result?.dqReason || ''); }}
+                                                                                onClick={() => setStatusEditId(entry.id)}
                                                                                 className="px-1.5 py-0.5 rounded text-[10px] font-black border bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200 hover:text-slate-600 transition-all"
-                                                                                title="Ustaw status (DNS/DNF/DQ/NM/NH)"
+                                                                                title="Oznacz jako DNS"
                                                                             >
-                                                                                Status
+                                                                                DNS?
                                                                             </button>
                                                                         );
                                                                         return (
                                                                             <button
-                                                                                onClick={() => { setStatusEditId(entry.id); setDqReasonInput(entry.result?.dqReason || ''); }}
+                                                                                onClick={() => setStatusEditId(entry.id)}
                                                                                 className={`px-1.5 py-0.5 rounded text-[10px] font-black border transition-all ${sStyle.color}`}
-                                                                                title={rs === 'DQ' && entry.result?.dqReason ? entry.result.dqReason : 'Kliknij aby zmienić status'}
+                                                                                title="Kliknij aby zmienić"
                                                                             >
-                                                                                {rs}{rs === 'DQ' && entry.result?.dqReason ? ' ⓘ' : ''}
+                                                                                {rs}
                                                                             </button>
                                                                         );
                                                                     })()}
